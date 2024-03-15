@@ -1,0 +1,188 @@
+require no.ssb.fdb:27 as db
+create-dataset lavinntekt
+import db/BEFOLKNING_STATUSKODE 2023-01-01 as rtegstat
+
+// tekst til tall
+destring rtegstat
+
+//tabulate rtegstat
+keep if rtegstat == 1
+
+// Importere kommune-variabel for 2023
+import db/BEFOLKNING_KOMMNR_FORMELL 2023-01-01 as kommune2023
+
+//genererer alder med utgangspunkt i 2022 da inntekt er 2022
+import db/BEFOLKNING_FOEDSELS_AAR_MND as faarmnd
+generate alder = 2022 - int(faarmnd/100)
+
+//Henter studenter 
+create-dataset kursdata
+import db/NUDB_KURS_NUS 2022-09-01 as kurstype
+import db/NUDB_KURS_FNR as fnr
+collapse (count) kurstype, by(fnr)
+rename kurstype ant_kurs
+merge ant_kurs into lavinntekt
+
+//og dropper studenter
+use lavinntekt
+generate studerer = 0
+//tabulate ant_kurs
+replace studerer = 1 if ant_kurs >= 1
+//tabulate studerer
+keep if studerer == 0
+//tabulate ant_kurs
+
+//tekst til tall kommunenummer
+destring kommune2023, force
+
+// Henter husholdning og tar vekk aleneboende under 18
+import db/BEFOLKNING_REGSTAT_HUSHTYP 2023-01-01 as husholdningstype
+drop if husholdningstype == '1.1.1' & alder < 18
+
+//Henter inntekt etter skatt per forbruksenhet
+import db/INNTEKT_HUSH_IES_EU  2022-12-31 as inntektforbruks 
+
+
+//genererer fylke
+generate fylke2023 = substr(kommune2023, 1,2)
+//tabulate fylke2023, summarize(inntektforbruks) p50
+
+// Recoding KOMMUNE/FYLKE 2023-struktur 5-kategorier Østfold, Buskerud, Akershus, Oslo, Resten av Norge
+destring kommune2023
+generate nyfylke=kommune2023
+recode nyfylke (3019/3037 3053/3054 = 32 'Akershus') (3001/3004 3011/3018 = 31'Østfold') (3005/3007 3038/3052 = 33 'Buskerud') (0301 =  3 'Oslo') (1101 1103 1106 1108 1111 1112 1114 1119/1122 1124 1127 1130 1133/1135 1144/1146 1149 1151 1160 1505/1507 1511 1514/1517 1520 1525 1528 1531 1532 1535 1539 1547 1554 1557 1560 1563 1566 1573 1576/1579 1804 1806 1811/1813 1815/1816 1818 1820 1822 1824/1828 1832/1841 1845 1848 1851 1853 1856 1857 1859 1860 1865/1868 1870 1871 1874 1875 3401 3403 3405 3407 3411/3443 3446/3454 3801/3808 3811/3825 4201/4207 4211/4228 4601 4602 4611/4651 5001 5006 5007 5014 5020/5022 5025/5029 5031/5038 5041/5047  5049 5052/5061 5401/5406 5411/5430 5432/5444= 5 'Resten av Norge')
+
+//Henter median på fylke og kommune å finne (fylkes)kommunal lavinntektsgrense (60% av median)
+tabulate kommune2023, summarize(inntektforbruks) p50 
+
+tabulate nyfylke, summarize(inntektforbruks) p50
+
+//lager lavinntekstvariabel
+generate lavinntekt23 =0
+
+//genererer lavinntekt for Østfoldkommuner
+replace lavinntekt23 = 1 if kommune2023==3001 & inntektforbruks<246600
+replace lavinntekt23 = 1 if kommune2023==3002 & inntektforbruks<256800
+replace lavinntekt23 = 1 if kommune2023==3003 & inntektforbruks<244800
+replace lavinntekt23 = 1 if kommune2023==3004 & inntektforbruks<252000
+replace lavinntekt23 = 1 if kommune2023==3011 & inntektforbruks<271800
+replace lavinntekt23 = 1 if kommune2023==3012 & inntektforbruks<250200
+replace lavinntekt23 = 1 if kommune2023==3013 & inntektforbruks<243000
+replace lavinntekt23 = 1 if kommune2023==3014 & inntektforbruks<250800
+replace lavinntekt23 = 1 if kommune2023==3015 & inntektforbruks<256200
+replace lavinntekt23 = 1 if kommune2023==3016 & inntektforbruks<247200
+replace lavinntekt23 = 1 if kommune2023==3017 & inntektforbruks<261600
+replace lavinntekt23 = 1 if kommune2023==3018 & inntektforbruks<265800
+
+//Henter tall for lavinntekt alle og lavinntekt barn i Østfold
+tabulate  kommune2023 lavinntekt23 if nyfylke==31
+tabulate  kommune2023 lavinntekt23 if nyfylke==31 & alder<18
+tabulate husholdningstype lavinntekt23 if nyfylke==31
+
+//genererer lavinntekt for Oslo 
+replace lavinntekt23=1  if kommune2023==0301 & inntektforbruks<282600
+
+//Henter tall for lavinntekt alle og lavinntekt barn i Oslo
+tabulate lavinntekt23 if kommune2023==0301
+tabulate lavinntekt23 if kommune2023==0301 & alder<18
+tabulate husholdningstype lavinntekt23 if kommune2023==0301
+
+
+//genererer lavinntekt medkommunal median for Akershuskommuner
+replace lavinntekt23 = 1 if kommune2023==3019 & inntektforbruks<276600
+replace lavinntekt23 = 1 if kommune2023==3020 & inntektforbruks<297000
+replace lavinntekt23 = 1 if kommune2023==3021 & inntektforbruks<281400
+replace lavinntekt23 = 1 if kommune2023==3022 & inntektforbruks<252000
+replace lavinntekt23 = 1 if kommune2023==3023 & inntektforbruks<289200
+replace lavinntekt23 = 1 if kommune2023==3024 & inntektforbruks<324000
+replace lavinntekt23 = 1 if kommune2023==3025 & inntektforbruks<302400
+replace lavinntekt23 = 1 if kommune2023==3026 & inntektforbruks<255000
+replace lavinntekt23 = 1 if kommune2023==3027 & inntektforbruks<280200
+replace lavinntekt23 = 1 if kommune2023==3028 & inntektforbruks<269400
+replace lavinntekt23 = 1 if kommune2023==3029 & inntektforbruks<277800
+replace lavinntekt23 = 1 if kommune2023==3030 & inntektforbruks<278400
+replace lavinntekt23 = 1 if kommune2023==3031 & inntektforbruks<291000
+replace lavinntekt23 = 1 if kommune2023==3032 & inntektforbruks<289200
+replace lavinntekt23 = 1 if kommune2023==3033 & inntektforbruks<264000
+replace lavinntekt23 = 1 if kommune2023==3034 & inntektforbruks<264000
+replace lavinntekt23 = 1 if kommune2023==3035 & inntektforbruks<260400
+replace lavinntekt23 = 1 if kommune2023==3036 & inntektforbruks<264000
+replace lavinntekt23 = 1 if kommune2023==3037 & inntektforbruks<247200
+replace lavinntekt23 = 1 if kommune2023==3053 & inntektforbruks<255000
+replace lavinntekt23 = 1 if kommune2023==3054 & inntektforbruks<268200
+
+//Henter tall for lavinntekt alle og lavinntekt barn i Akershus
+tabulate  kommune2023 lavinntekt23 if nyfylke==32
+tabulate  kommune2023 lavinntekt23 if nyfylke==32 & alder<18
+tabulate husholdningstype lavinntekt23 if nyfylke==32
+
+//genererer lavinntekt med kommunal median for Buskerud
+replace lavinntekt23 = 1 if kommune2023==3005 & inntektforbruks<259800
+replace lavinntekt23 = 1 if kommune2023==3006 & inntektforbruks<276000
+replace lavinntekt23 = 1 if kommune2023==3007 & inntektforbruks<253200
+replace lavinntekt23 = 1 if kommune2023==3038 & inntektforbruks<286800
+replace lavinntekt23 = 1 if kommune2023==3039 & inntektforbruks<249000
+replace lavinntekt23 = 1 if kommune2023==3040 & inntektforbruks<255000
+replace lavinntekt23 = 1 if kommune2023==3041 & inntektforbruks<258600
+replace lavinntekt23 = 1 if kommune2023==3042 & inntektforbruks<262800
+replace lavinntekt23 = 1 if kommune2023==3043 & inntektforbruks<264000
+replace lavinntekt23 = 1 if kommune2023==3044 & inntektforbruks<262200
+replace lavinntekt23 = 1 if kommune2023==3045 & inntektforbruks<258000
+replace lavinntekt23 = 1 if kommune2023==3046 & inntektforbruks<255000
+replace lavinntekt23 = 1 if kommune2023==3047 & inntektforbruks<247800
+replace lavinntekt23 = 1 if kommune2023==3048 & inntektforbruks<262800
+replace lavinntekt23 = 1 if kommune2023==3049 & inntektforbruks<286200
+replace lavinntekt23 = 1 if kommune2023==3050 & inntektforbruks<264600
+replace lavinntekt23 = 1 if kommune2023==3051 & inntektforbruks<255600
+replace lavinntekt23 = 1 if kommune2023==3052 & inntektforbruks<253200
+
+//Henter tall for lavinntekt alle og lavinntekt barn i Buskerud
+tabulate  kommune2023 lavinntekt23 if nyfylke==33
+tabulate  kommune2023 lavinntekt23 if nyfylke==33 & alder<18
+tabulate husholdningstype lavinntekt23 if nyfylke==33
+
+//Henter landbakgrunn
+import db/BEFOLKNING_LANDBAK3GEN as landbakgrunn
+
+//Oppretter kopi av landbakgrunn for å kontrollere omkodingen
+clone-variables landbakgrunn -> landbakgrunn_orig
+
+//Omkoder landbakgrunn til verdensregion - bruker først destring for å gjøre formatet om til numerisk (kreves ved recode)
+destring landbakgrunn
+//drop if landbakgrunn == 980 | 990
+
+recode landbakgrunn (111 120 138 139 140 148 155 156 159/164 = 2) (101/141 144/158 = 1) (203/393 = 3) (143 404/578 = 4) (612 684 = 5) (601/775 = 6) (802/804 806/819 821/840 = 7)  (805 820=10)
+//(980 = 8) (990 = 9)
+
+define-labels vregion 0 'Norge' 1 'EU/EØS' 2 'Europeiske land utenom EU' 3 'Afrika' 4 'Asia med Tyrkia' 5 'Nord-Amerika' 6 'Sør- og Mellom-Amerika' 7 'Oseania uten NZ og Australia' 10 'NZ og Australia'
+//8 'Statsløse' 9 'Uoppgitt' 
+assign-labels landbakgrunn vregion
+
+//Lager egen inndeling på landbakgrunn
+generate tredeltregion =0
+replace tredeltregion = 1 if landbakgrunn == 1 | landbakgrunn== 5 | landbakgrunn == 10
+replace tredeltregion = 2 if landbakgrunn == 2 |landbakgrunn == 3 |landbakgrunn == 4 |landbakgrunn == 6 |landbakgrunn ==7
+//replace tredeltregion = 3 if landbakgrunn == 8 |landbakgrunn == 9
+
+define-labels reginnv 0 'Norge' 1 'EU/EØS,N-Amerika, Australia og NZ' 2 'Afrika/Asia mm' 
+//3 'Uoppgitt etter statsløs'
+
+assign-labels tredeltregion reginnv
+
+//henter informasjon om lavinntekt og landbakgrunn på fylke
+tabulate lavinntekt23 landbakgrunn if nyfylke==31
+tabulate lavinntekt23 tredeltregion husholdningstype if nyfylke==31
+
+tabulate lavinntekt23 landbakgrunn if nyfylke==32
+tabulate lavinntekt23 tredeltregion husholdningstype if nyfylke==32
+
+tabulate lavinntekt23 landbakgrunn if nyfylke==33
+tabulate lavinntekt23 tredeltregion husholdningstype if nyfylke==33
+
+tabulate lavinntekt23 landbakgrunn if nyfylke==3
+tabulate lavinntekt23 tredeltregion husholdningstype if nyfylke==3
+
+//ser på Ukrainere
+tabulate lavinntekt23 if landbakgrunn==2
+tabulate landbakgrunn_orig if landbakgrunn==2
+tabulate lavinntekt23 if landbakgrunn_orig=='148'
