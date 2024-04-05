@@ -1,0 +1,181 @@
+Flyktninger Sosial 17-22
+
+require no.ssb.fdb:27 as fdb
+
+
+create-dataset data22
+// Så denne arbeidsstedsgreia er ift. "Hovedarbeidsforhold" arbeidsforholdet som tar mest arbeidstid (?) Alfanumerisk, tverrsnitt, person
+//import fdb/REGSYS_ARB_ARBKOMM 2022-11-16 as arbeidsted
+//import fdb/BEFOLKNING_KOMMNR_FORMELL 2022-01-01 as bosted
+
+import fdb/BEFOLKNING_STATUSKODE 2023-01-01 as regstat1
+
+import fdb/BEFOLKNING_KOMMNR_FAKTISK 2023-01-01 as bosted23
+//generate fylke = substr(arbeidsted,1,2)
+//generate kom = substr(arbeidsted, 1,4)
+
+//generate BoFylke = substr(bosted,1,2)
+//generate BoKom = substr(bosted, 1,4)
+
+generate BoFylke23 = substr(bosted23,1,2)
+generate BoKom23 = substr(bosted23, 1,4)
+
+//keep if fylke == '30' | fylke == '01' |fylke == '02' | fylke == '06' | fylke == '03'
+//destring kom
+//clone-variables kom -> økreg
+
+//keep if fylke == '30' | fylke == '01' |fylke == '02' | fylke == '06' | fylke == '03'
+//destring kom
+//clone-variables kom -> økreg
+
+
+//recode økreg (301 = 14 'Oslo') (3001 3012 = 1 'Halden/Aremark') (3003 3004 3011 3017 = 2 'Nedre Glomma') (3002 3018 = 3 'Mosseregionen') (3013/3016 = 4 'Indre Østfold') (3019/3023 3028 = 5 'Folloregionen') (3026 3027 3029/3034 3054 = 6 'Lillestrøm/Nedre Romerike') (3033 3035/3037 = 7 'Øvre Romerike') (3024 3025 = 8 'Asker/Bærum') (3007 3038 3046 3053 = 9 'Ringeriksregionen') (3005 3045 3046/3049 = 10 'Drammen') (3006 3050/3052 = 11 'Kongsberg') (3039/3044 = 12 'Hallingdal') (3401 3414/3417 = 13 'Kongsvinger') 
+
+//keep if BoFylke == '30' | BoFylke == '01' | BoFylke == '02' | BoFylke == '06' | BoFylke == '03'
+//destring BoKom
+//clone-variables BoKom -> BoØkreg
+
+//keep if BoFylke23 == '30' | BoFylke == '01' | BoFylke == '02' | BoFylke == '06' | BoFylke == '03'
+destring BoKom23
+clone-variables BoKom23 -> BoØkreg23
+
+//recode BoØkreg (301 = 14 'Oslo') (3001 3012 = 1 'Halden/Aremark') (3003 3004 3011 3017 = 2 'Nedre Glomma') (3002 3018 = 3 'Mosseregionen') (3013/3016 = 4 'Indre Østfold') (3019/3023 3028 = 5 'Folloregionen') (3026 3027 3029/3034 3054 = 6 'Lillestrøm/Nedre Romerike') (3033 3035/3037 = 7 'Øvre Romerike') (3024 3025 = 8 'Asker/Bærum') (3007 3038 3046 3053 = 9 'Ringeriksregionen') (3005 3045 3046/3049 = 10 'Drammen') (3006 3050/3052 = 11 'Kongsberg') (3039/3044 = 12 'Hallingdal') (0000/2699 3401/9999 = 15 'Ikke Oslo/Viken')
+
+recode BoØkreg23 (301 = 13 'Oslo') (3001 3012 = 1 'Halden/Aremark') (3003 3004 3011 3017 = 2 'Nedre Glomma') (3002 3018 = 3 'Mosseregionen') (3013/3016 = 4 'Indre Østfold') (3019/3023 3028 = 5 'Folloregionen') (3024 3025 = 6 'Asker/Bærum') (3026 3027 3029/3034 3053 3054 = 7 'Lillestrøm/Nedre Romerike') (3033 3035/3037 = 8 'Øvre Romerike')  (3007 3038 3046 = 9 'Ringeriksregionen') (3005 3045 3046/3049 = 10 'Drammen') (3006 3050/3052 = 11 'Kongsberg') (3039/3044 = 12 'Hallingdal') (0000/2699 3401/9999 = 14 'Ikke Oslo/Viken')
+tabulate BoØkreg23
+import fdb/BEFOLKNING_INNGRUNN1 as innvandrergrunn
+generate flyktning = 0 
+replace flyktning = 1 if innvandrergrunn == 'FLU'
+tabulate BoØkreg23 if flyktning == 1 
+//sankey BoFylke BoFylke23 if innvandrergrunn == 'FLU'
+
+import fdb/BEFOLKNING_FODELAND as fødeland
+
+create-dataset sosial2017
+use sosial2017
+import-event fdb/SOSHJLPFDT_MOTTAK 2017-01-01 to 2017-12-01 as sosial17
+//replace STOP@sosial = date(2017,12,31) if STOP@sosial > date(2017,12,31)
+//replace START@sosial = date(2017,01,01) if START@sosial < date(2017,01,01)
+//generate dager = STOP@sosial - START@sosial + 1
+//collapse(sum) dager, by(PERSONID_1)
+collapse(count) sosial17, by(PERSONID_1)
+summarize sosial17
+tabulate sosial17
+recode sosial17 (1/6 = 1)
+tabulate sosial17
+
+create-dataset sosial2022
+use sosial2022
+import-event fdb/SOSHJLPFDT_MOTTAK 2022-01-01 to 2022-12-01 as sosial22
+//replace STOP@sosial = date(2017,12,31) if STOP@sosial > date(2017,12,31)
+//replace START@sosial = date(2017,01,01) if START@sosial < date(2017,01,01)
+//generate dager = STOP@sosial - START@sosial + 1
+//collapse(sum) dager, by(PERSONID_1)
+collapse(count) sosial22, by(PERSONID_1)
+summarize sosial22
+tabulate sosial22
+recode sosial22 (1/6 = 1)
+tabulate sosial22
+merge sosial22 into data22
+//
+
+
+create-dataset data17
+use data17
+// Så denne arbeidsstedsgreia er ift. "Hovedarbeidsforhold" arbeidsforholdet som tar mest arbeidstid (?) Alfanumerisk, tverrsnitt, person
+//import fdb/REGSYS_ARB_ARBKOMM 2022-11-16 as arbeidsted
+//import fdb/BEFOLKNING_KOMMNR_FORMELL 2022-01-01 as bosted
+
+import fdb/BEFOLKNING_STATUSKODE 2018-01-01 as regstat2
+
+import fdb/BEFOLKNING_KOMMNR_FAKTISK 2018-01-01 as bosted17
+//generate fylke = substr(arbeidsted,1,2)
+//generate kom = substr(arbeidsted, 1,4)
+
+//generate BoFylke = substr(bosted,1,2)
+//generate BoKom = substr(bosted, 1,4)
+
+generate BoFylke17 = substr(bosted17,1,2)
+generate BoKom17 = substr(bosted17, 1,4)
+
+//keep if fylke == '30' | fylke == '01' |fylke == '02' | fylke == '06' | fylke == '03'
+//destring kom
+//clone-variables kom -> økreg
+
+//keep if fylke == '30' | fylke == '01' |fylke == '02' | fylke == '06' | fylke == '03'
+//destring kom
+//clone-variables kom -> økreg
+
+
+//recode økreg (301 = 14 'Oslo') (3001 3012 = 1 'Halden/Aremark') (3003 3004 3011 3017 = 2 'Nedre Glomma') (3002 3018 = 3 'Mosseregionen') (3013/3016 = 4 'Indre Østfold') (3019/3023 3028 = 5 'Folloregionen') (3026 3027 3029/3034 3054 = 6 'Lillestrøm/Nedre Romerike') (3033 3035/3037 = 7 'Øvre Romerike') (3024 3025 = 8 'Asker/Bærum') (3007 3038 3046 3053 = 9 'Ringeriksregionen') (3005 3045 3046/3049 = 10 'Drammen') (3006 3050/3052 = 11 'Kongsberg') (3039/3044 = 12 'Hallingdal') (3401 3414/3417 = 13 'Kongsvinger') 
+
+//keep if BoFylke == '30' | BoFylke == '01' | BoFylke == '02' | BoFylke == '06' | BoFylke == '03'
+//destring BoKom
+//clone-variables BoKom -> BoØkreg
+
+//keep if BoFylke23 == '30' | BoFylke == '01' | BoFylke == '02' | BoFylke == '06' | BoFylke == '03'
+destring BoKom17
+clone-variables BoKom17 -> BoØkreg17
+
+//recode BoØkreg (301 = 14 'Oslo') (3001 3012 = 1 'Halden/Aremark') (3003 3004 3011 3017 = 2 'Nedre Glomma') (3002 3018 = 3 'Mosseregionen') (3013/3016 = 4 'Indre Østfold') (3019/3023 3028 = 5 'Folloregionen') (3026 3027 3029/3034 3054 = 6 'Lillestrøm/Nedre Romerike') (3033 3035/3037 = 7 'Øvre Romerike') (3024 3025 = 8 'Asker/Bærum') (3007 3038 3046 3053 = 9 'Ringeriksregionen') (3005 3045 3046/3049 = 10 'Drammen') (3006 3050/3052 = 11 'Kongsberg') (3039/3044 = 12 'Hallingdal') (0000/2699 3401/9999 = 15 'Ikke Oslo/Viken')
+
+
+
+//recode BoØkreg17 (301 = 14 'Oslo') (3001 3012 = 1 'Halden/Aremark') (3003 3004 3011 3017 = 2 'Nedre Glomma') (3002 3018 = 3 'Mosseregionen') (3013/3016 = 4 'Indre Østfold') (3019/3023 3028 = 5 'Folloregionen') (3026 3027 3029/3034 3054 = 6 'Lillestrøm/Nedre Romerike') (3033 3035/3037 = 7 'Øvre Romerike') (3024 3025 = 8 'Asker/Bærum') (3007 3038 3046 3053 = 9 'Ringeriksregionen') (3005 3045 3046/3049 = 10 'Drammen') (3006 3050/3052 = 11 'Kongsberg') (3039/3044 = 12 'Hallingdal') (0000/2699 3401/9999 = 15 'Ikke Oslo/Viken')
+
+recode BoØkreg17 (301 = 13 'Oslo') (0101 0118 = 1 'Halden/Aremark') (0104 0135/0137 = 3 'Mosseregionen') (0105 0106 0111 0128 = 2 'Nedre Glomma')  (0119 0121/0125 0127 0138 = 4 'Indre Østfold') (0211 0213/0217 = 5 'Folloregionen') (0219 0220 0627 0628 = 6 'Asker/Bærum') (0221 0226 0227/0231 0233 0234 0236 0532 0533 0534= 7 'Lillestrøm/Nedre Romerike') (0235 0237/0239 = 8 'Øvre Romerike')  (0605 0612 0622 = 9 'Ringeriksregionen') (0602 0621/0626 = 10 'Drammen') (0604 0631/0633 = 11 'Kongsberg') (0615/0620 = 12 'Hallingdal') (0402/0545 0701/9999 = 14 'Ikke Oslo/Viken')
+
+tabulate BoØkreg17
+
+import fdb/BEFOLKNING_INNGRUNN1 as innvandrergrunn
+
+generate flyktning = 0 
+replace flyktning = 1 if innvandrergrunn == 'FLU'
+tabulate BoØkreg17 if flyktning == 1 
+//sankey BoFylke BoFylke23 if innvandrergrunn == 'FLU'
+
+
+use sosial2017
+merge sosial17 into data17
+
+use data17
+
+tabulate BoØkreg17 if sosial17
+
+generate sosial17flykt = 0 
+replace sosial17flykt = 1 if flyktning == 1 & sosial17
+
+tabulate BoØkreg17 if sosial17flykt == 1
+
+
+use data22
+
+tabulate BoØkreg23 if sosial22
+
+generate sosial22flykt = 0 
+replace sosial22flykt = 1 if flyktning == 1 & sosial22
+tabulate BoØkreg23 if sosial22flykt == 1
+//create-dataset diff1722
+use data17
+merge sosial17flykt into data22
+merge BoØkreg17 into data22
+//merge sosial17flykt into data22
+use data22
+sankey BoØkreg17 BoØkreg23 if sosial17flykt == 1 & sosial22flykt == 1
+tabulate BoØkreg17 
+tabulate BoØkreg23 
+tabulate BoØkreg17 if sosial17flykt == 1
+tabulate BoØkreg23 if sosial22flykt == 1
+
+
+
+tabulate sosial17flykt fødeland
+
+// I 2017 er det enkelte land som har høy andel bosatte i Norge som både er på
+// sosialhjelp og er flyktninger. Eksempelvis er over 10% av alle bosatte fra 
+// Ethiopia, Eritrea, Irak, Syria, Afghanistan og Somalia flyktninger på sosialhjelp
+// De hardest krise/krigsrammede landene har altså høyest andel flyktninger på sosialhjelp. 
+
+//generate BoØkreg17sf = 0 
+//replace BoØkreg17sf = 1 if sosialfl
+
