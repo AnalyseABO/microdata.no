@@ -1,0 +1,180 @@
+require no.ssb.fdb:27 as fdb
+
+create-dataset data22
+
+import fdb/BEFOLKNING_STATUSKODE 2023-01-01 as regstat1
+
+import fdb/BEFOLKNING_KOMMNR_FAKTISK 2023-01-01 as bosted23
+
+
+generate BoFylke23 = substr(bosted23,1,2)
+generate BoKom23 = substr(bosted23, 1,4)
+ 
+destring BoKom23
+
+import fdb/BEFOLKNING_INNGRUNN1 as innvandrergrunn
+generate flyktning = 0 
+replace flyktning = 1 if innvandrergrunn == 'FLU'
+
+//sankey BoFylke BoFylke23 if innvandrergrunn == 'FLU'
+
+import fdb/BEFOLKNING_FODELAND as fødeland
+
+create-dataset sosial2017
+use sosial2017
+import-event fdb/SOSHJLPFDT_MOTTAK 2017-01-01 to 2017-12-01 as sosial17
+
+collapse(count) sosial17, by(PERSONID_1)
+summarize sosial17
+tabulate sosial17
+recode sosial17 (1/6 = 1)
+tabulate sosial17
+
+create-dataset sosial2022
+use sosial2022
+import-event fdb/SOSHJLPFDT_MOTTAK 2022-01-01 to 2022-12-01 as sosial22
+
+collapse(count) sosial22, by(PERSONID_1)
+summarize sosial22
+tabulate sosial22
+recode sosial22 (1/6 = 1)
+tabulate sosial22
+merge sosial22 into data22
+//
+
+
+create-dataset data17
+use data17
+// Så denne arbeidsstedsgreia er ift. "Hovedarbeidsforhold" arbeidsforholdet som tar mest arbeidstid (?) Alfanumerisk, tverrsnitt, person
+//import fdb/REGSYS_ARB_ARBKOMM 2022-11-16 as arbeidsted
+//import fdb/BEFOLKNING_KOMMNR_FORMELL 2022-01-01 as bosted
+
+import fdb/BEFOLKNING_STATUSKODE 2018-01-01 as regstat2
+
+import fdb/BEFOLKNING_KOMMNR_FAKTISK 2018-01-01 as bosted17
+//generate fylke = substr(arbeidsted,1,2)
+//generate kom = substr(arbeidsted, 1,4)
+
+//generate BoFylke = substr(bosted,1,2)
+//generate BoKom = substr(bosted, 1,4)
+
+generate BoFylke17 = substr(bosted17,1,2)
+generate BoKom17 = substr(bosted17, 1,4)
+
+destring BoKom17
+clone-variables BoKom17 -> Polreg17
+merge BoKom17 into data22
+
+use data17
+import fdb/BEFOLKNING_INNGRUNN1 as innvandrergrunn
+
+generate flyktning = 0 
+replace flyktning = 1 if innvandrergrunn == 'FLU'
+
+//sankey BoFylke BoFylke23 if innvandrergrunn == 'FLU'
+
+
+use sosial2017
+merge sosial17 into data17
+use data17
+
+generate sosial17flykt = 0 
+replace sosial17flykt = 1 if flyktning == 1 & sosial17
+
+//import fdb/BEFOLKNING_FODELAND as fødeland
+//clone-variables fødeland -> fødeland2
+//destring fødeland2
+//recode fødeland2 (000 = 0 'Norsk') (143 404/578 111 120 138 140 148 155 156 159/164 195 203/393 601/605 606/613 616/672 677/678 679/680 685 705/775 802 813 806 811 815 814 816 826 827 830 833 835 839 980 990 = 2 'Ikke-Vestlig') (101/141 144/158 500 612 684 805 820 = 1 'Vestlig') 
+
+//tabulate sosial17flykt fødeland2
+//tabulate sosial17flykt fødeland2 if regstat2 =='1'
+
+use data22
+
+generate sosial22flykt = 0 
+replace sosial22flykt = 1 if flyktning == 1 & sosial22
+
+//create-dataset diff1722
+use data17
+merge sosial17flykt into data22
+
+//merge sosial17flykt into data22
+use data22
+
+clone-variables BoKom17 -> OsloViken17
+destring OsloViken17
+recode OsloViken17 (0301 = 4 'Oslo')(0101/0138 = 1'Østfold') (0211/0239 0532 0533 0627 0628 = 2 'Akershus')(0602/0626 0631/0633 = 3 'Buskerud') (0402/0529 0534/0545 = 5 'Innlandet') (0701/0729 = 6'Vestfold') (0805/0834 = 7 'Telemark') (0901/1046 = 8 'Agder') (1101/1160 = 9 'Rogaland') (1201/1449 = 10 'Vestland') (1502/1576 = 11 'Møre og Romsdal') (1804/1874 = 12 'Nordland')(1902/1943 = 13 'Troms') (2002/2030 = 14 'Finnmark') (5001/9999 = 15 'Trøndelag')
+tabulate OsloViken17
+
+clone-variables BoKom17 -> landet17
+destring landet17 
+recode landet17 (0101/5054 = 1 'Norge')
+
+clone-variables BoKom23 -> OsloViken22
+destring OsloViken22
+recode OsloViken22 (0301 = 4 'Oslo')(3019/3037 3053 3054 = 2 'Akershus')(3005/3007 3038/3052 = 3 'Buskerud') (3001/3004 3011/3018 = 1'Østfold') (3401/3454 = 5 'Innlandet') (3801/3805 3811  = 6'Vestfold') (3805/3825 = 7 'Telemark') (4201/4228 = 8 'Agder') (1101/1160 = 9 'Rogaland') (4601/4651 = 10 'Vestland') (1502/1579 = 11 'Møre og Romsdal') (1804/1875 = 12 'Nordland')(5401 5402 5411/5430 = 13 'Troms') (5403/5406 5432/5444  = 14 'Finnmark') (5001/5061 = 15 'Trøndelag') 
+tabulate OsloViken22 
+
+clone-variables BoKom23 -> landet22
+destring landet22
+recode landet22 (0000/9999 = 1 'Norge')
+
+tabulate OsloViken22
+tabulate OsloViken17 if sosial17flykt == 1
+tabulate OsloViken22 if sosial22flykt == 1
+tabulate landet17 if sosial17flykt == 1
+tabulate landet22 if sosial22flykt == 1
+tabulate landet17
+tabulate landet22
+
+tabulate sosial17flykt if landet17, missing
+
+create-dataset flyktninger
+use flyktninger
+import fdb/BEFOLKNING_KOMMNR_FAKTISK 2023-01-01 as bosted23
+use data22
+merge flyktning into flyktninger
+merge regstat1 into flyktninger
+use data17 
+merge regstat2 into flyktninger
+merge regstat2 into data22
+use flyktninger
+
+keep if flyktning == 1 
+
+use data22
+merge sosial22 into flyktninger 
+merge landet17 into flyktninger
+merge landet22 into flyktninger
+
+use flyktninger
+
+tabulate flyktning landet17 landet22
+
+tabulate flyktning landet17  sosial22
+
+
+
+tabulate flyktning landet22 sosial22
+tabulate flyktning landet22
+
+tabulate landet22
+// Antall flyktninger i 2017 var 134940 personer
+
+// Antall av disse som fortsatt bor i Norge i 2022 er 23460
+
+// Sosialhjelp i 22 var 39760 av 187860 flyktninger ca. 21% av flykt er sosial.
+
+// Av de på sosialhjelp som var flyktninger i 
+
+
+// Variabel sosialhjelp og flyktning i samme. Telle de som var i 2017 som flyktninger uavhenging av sosial eller ei. Hadde sosialhjelp eller ikke. Flyktninger som kom som NYE
+use data22
+
+tabulate sosial17flykt sosial22flykt if landet22
+tabulate OsloViken22 sosial22flykt
+
+
+tabulate OsloViken17 OsloViken22 if sosial22flykt == 1
+
+sankey OsloViken17 OsloViken22 if sosial22flykt == 1
