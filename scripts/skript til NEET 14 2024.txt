@@ -1,0 +1,920 @@
+//Kobler til database
+require no.ssb.fdb:32 as ds
+
+//Lager et datasett med alle bosatte i Norge per 1/1 2023 (persondata)
+create-dataset alle
+import ds/BEFOLKNING_STATUSKODE 2023-01-01 as regstat
+keep if regstat == '1'
+import ds/BEFOLKNING_FOEDSELS_AAR_MND as faarmnd
+import ds/NUDB_BU 2023-08-01 as utd
+import ds/BEFOLKNING_KJOENN as kjønn
+import ds/BEFOLKNING_FODELAND as land
+import ds/REGSYS_ARB_ARBMARK_STATUS 2017-11-16 as arbmarkstatus17
+import ds/REGSYS_ARB_ARBMARK_STATUS 2020-11-16 as arbmarkstatus20
+import ds/REGSYS_ARB_ARBMARK_STATUS 2023-11-16 as arbmarkstatus 
+
+
+//Prøver å flytte disse lenger ned. Tror de tukler til barnevernstallene
+generate alder = 2023 - int(faarmnd/100)
+//keep if alder >= 16 & alder < 30
+generate uo25 = 0
+replace uo25 = 0 if alder > 16 & alder <= 24
+replace uo25 = 1 if alder > 24 & alder < 30
+
+//2016 
+generate alder17 = 2017 - int(faarmnd/100)
+generate uo20i2017 = 0
+replace uo20i2017 = 1 if alder17 > 20
+
+
+// Denne er litt optional, kan lages i tillegg (som Viken eller Viken + Oslo datasett)
+import ds/BEFOLKNING_KOMMNR_FAKTISK 2023-01-01 as bosted
+generate fylke = substr(bosted, 1, 2)
+generate kom = substr(bosted, 1, 4)
+
+// Her har jeg laget standard regioner fra SSB istedenfor kommunene hver for seg. Skriptet kombinerer de sammen på kommunenummer
+destring kom
+clone-variables kom -> økreg
+recode økreg (3001 3012 = 1 'Halden') (3003 3004 3011 3017 = 2 'Fredrikstad/Sarpsborg') (3002 3018 = 3 'Moss') (3013/3016 = 4 'Indre Østfold') (3019/3023 3028 = 5 'Follo') (3026 3027 3029/3034 3054 = 6 'Lillestrøm') (3033 3035/3037 = 7 'Ullensaker/Eidsvoll') (3024 3025 = 8 'Asker/Bærum') (3007 3038 3046 3053 = 9 'Hønefoss') (3005 3045 3046/3049 = 10 'Drammen') (3006 3050/3052 = 11 'Kongsberg') (3039/3044 = 12 'Hallingdal') 
+
+// Lager politiske regioner
+clone-variables kom -> polregBusk
+destring polregBusk
+recode polregBusk (3007 3038 3046/3047 = 1 'Ringeriksregionen') (3005 3048/3049 = 2 'Drammensregionen') (3006 3045 3050/3052 = 3 'Kongsbergregionen') (3039/3044 = 4 'Hallngdalregionen')
+//recode Buskerud (0301 1101/1875 3001/3004 3011/3037 3401/5444 = 0 'Resten av Oslo/Viken')
+
+
+
+// Lager fylker
+clone-variables kom -> Østfold
+destring Østfold
+recode Østfold (3001/3004 3011/3018 = 1'Østfold')
+recode Østfold (0301/1875 3005/3007 3019/5444 = 0 'Resten av Oslo/Viken' )
+drop if kom == 2580
+tabulate Østfold
+
+clone-variables kom -> Oslo
+destring Oslo
+recode Oslo (0301 = 1 'Oslo')
+recode Oslo (1101/1875 3001/5444 = 0 'Viken')
+
+clone-variables kom -> Akershus
+destring Akershus
+recode Akershus (3019/3037 = 1 'Akershus')
+recode Akershus (0301/1875 3001/3018 3038/5444 = 0 'Resten av Oslo/Viken')
+
+clone-variables kom -> Buskerud
+destring Buskerud
+recode Buskerud (3005/3007 3038/3054 = 1 'Buskerud')
+recode Buskerud (0301 1101/1875 3001/3004 3011/3037 3401/5444 = 0 'Resten av Oslo/Viken')
+
+// Landgrupper 2 versjoner. En generell og en Vestlig/Ikke/Norskfødt
+clone-variables land -> landgruppe
+clone-variables land -> landgruppe2
+destring landgruppe
+destring landgruppe2
+recode landgruppe (111 120 138 139 140 148 155 156 159/164 = 2 'Europeiske land utenom EU') (101/141 144/158 = 1 'EU/EØS') (203/393 = 3 'Afrika') (143 404/578 = 4 'Asia med Tyrkia') (612 684 = 5 'Nord-Amerika') (601/775 = 6 'Sør- og Mellom-Amerika') (802/840 = 7 'Oseania') (980 = 8 'Statsløse') (990 = 9 'Uoppgitt')
+recode landgruppe2 (000 = 0 'Norsk') (143 404/578 111 120 138 139 140 148 155 156 159/164 203/393 601/605 616/672 680 705/775 980 990 = 2 'Ikke-Vestlig') (101/141 144/158 612 684 805 820 = 1 'Vestlig') 
+//Statsløse inkludert som ikke-vestlig, kan gjerne endres til egen kategori, se variabel "land" 
+
+//Standard for økonomiske regioner fra SSB
+
+
+//Lager datasett for arbeidsforhold (jobbdata)
+// Dette er for å kontrollere om de har arbeidstid registrert per måned. Det er ikke forløpsdataformat, men likevel kontrollerer man forløp fordi det er akkumulert arbeidstid per måned.
+create-dataset arbeidsforhold
+
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-01-16 as arbtid2201, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-02-16 as arbtid2202, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-03-16 as arbtid2203, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-04-16 as arbtid2204, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-05-16 as arbtid2205, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-06-16 as arbtid2206, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-07-16 as arbtid2207, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-08-16 as arbtid2208, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-09-16 as arbtid2209, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-10-16 as arbtid2210, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-11-16 as arbtid2211, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2022-12-16 as arbtid2212, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-01-16 as arbtid2301, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-02-16 as arbtid2302, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-03-16 as arbtid2303, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-04-16 as arbtid2304, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-05-16 as arbtid2305, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-06-16 as arbtid2306, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-07-16 as arbtid2307, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-08-16 as arbtid2308, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-09-16 as arbtid2309, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-10-16 as arbtid2310, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-11-16 as arbtid2311, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2023-12-16 as arbtid2312, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2024-01-16 as arbtid2401, outer_join
+import ds/ARBEIDSFORHOLD_PERSON as personid
+
+//Merk at alle i dette datasettet har minst 1 måned med jobb (arbeidstid > 0) siden ARBLONN-variablene kun har personer i jobb som populasjon. Kan derfor bare sette verdien 1 på alle arbeidsforhold for variabelen ant_jobber2023
+
+generate ant_jobber2023 = 1
+
+//Aggregerer fra jobbnivå til persondatanivå (summerer antall jobbforhold per individ)
+collapse (sum) ant_jobber2023, by(personid)
+
+merge ant_jobber2023 into alle
+
+use alle  
+tabulate ant_jobber2023, missing
+// Ekskludere en valgt populasjon
+generate jobb2023 = 0
+replace jobb2023 = 1 if ant_jobber2023 > 0
+tabulate jobb2023
+
+
+
+create-dataset arbeidsforhold20
+//ARBLONN har ingenting før 2015. eksisterer (til info). Dette er en "dyrere" men bedre måte å sikre at folk har ingne arbeid(s tid registrert).
+
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-01-16 as arbtid1901
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-02-16 as arbtid1902, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-03-16 as arbtid1903, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-04-16 as arbtid1904, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-05-16 as arbtid1905, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-06-16 as arbtid1906, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-07-16 as arbtid1907, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-08-16 as arbtid1908, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-09-16 as arbtid1909, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-10-16 as arbtid1910, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-11-16 as arbtid1911, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2019-12-16 as arbtid1912, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-01-16 as arbtid2001, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-02-16 as arbtid2002, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-03-16 as arbtid2003, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-04-16 as arbtid2004, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-05-16 as arbtid2005, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-06-16 as arbtid2006, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-07-16 as arbtid2007, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-08-16 as arbtid2008, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-09-16 as arbtid2009, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-10-16 as arbtid2010, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-11-16 as arbtid2011, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2020-12-16 as arbtid2012, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2021-01-16 as arbtid2101, outer_join
+import ds/ARBEIDSFORHOLD_PERSON as personid
+
+//Merk at alle i dette datasettet har minst 1 måned med jobb (arbeidstid > 0) siden ARBLONN-variablene kun har personer i jobb som populasjon. 
+//Kan derfor bare sette verdien 1 på alle arbeidsforhold for variabelen ant_jobber2021
+
+generate ant_jobber2020 = 1
+
+//Aggregerer fra jobbnivå til persondatanivå (summerer antall jobbforhold per individ)
+collapse (sum) ant_jobber2020, by(personid)
+use alle 
+use arbeidsforhold20
+merge ant_jobber2020 into alle
+use alle
+generate jobb2020 = 0
+replace jobb2020 = 1 if ant_jobber2020 > 0
+
+create-dataset arbeidsforhold17
+
+
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-01-16 as arbtid1601
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-02-16 as arbtid1602, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-03-16 as arbtid1603, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-04-16 as arbtid1604, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-05-16 as arbtid1605, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-06-16 as arbtid1606, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-07-16 as arbtid1607, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-08-16 as arbtid1608, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-09-16 as arbtid1609, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-10-16 as arbtid1610, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-11-16 as arbtid1611, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2016-12-16 as arbtid1612, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-01-16 as arbtid1701, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-02-16 as arbtid1702, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-03-16 as arbtid1703, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-04-16 as arbtid1704, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-05-16 as arbtid1705, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-06-16 as arbtid1706, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-07-16 as arbtid1707, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-08-16 as arbtid1708, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-09-16 as arbtid1709, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-10-16 as arbtid1710, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-11-16 as arbtid1711, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2017-12-16 as arbtid1712, outer_join
+import ds/ARBLONN_ARB_ARBEIDSTID 2018-01-16 as arbtid1801, outer_join
+import ds/ARBEIDSFORHOLD_PERSON as personid
+
+//Merk at alle i dette datasettet har minst 1 måned med jobb (arbeidstid > 0) siden ARBLONN-variablene kun har personer i jobb som populasjon. 
+//Kan derfor bare sette verdien 1 på alle arbeidsforhold for variabelen ant_jobber2021
+
+generate ant_jobber2017 = 1
+
+//Aggregerer fra jobbnivå til persondatanivå (summerer antall jobbforhold per individ)
+collapse (sum) ant_jobber2017, by(personid)
+merge ant_jobber2017 into alle
+use alle
+generate jobb2017 = 0
+replace jobb2017 = 1 if ant_jobber2017 > 0
+
+//Lager datasett for kurs/utdanning (kursdata)
+create-dataset kursdata
+import-event ds/NUDB_KURS_NUS 2021-09-16 to 2023-09-01 as kurstype
+destring kurstype, force
+
+// AAP-data er litt krunglete, vil ikke gi meg identisk med ufør.
+create-dataset aapdata
+import-event ds/ARBAVKLARPFDT_MOTTAK 2023-01-01 to 2023-12-01 as aap23
+destring aap23, force
+collapse(count) aap23, by(PERSONID_1)
+merge aap23 into alle
+use alle 
+generate aap2023 = 0 
+replace aap2023 = 1 if aap23 > 0
+
+tabulate aap2023
+
+create-dataset uføre
+import-event ds/UFOERP2011FDT_MOTTAK 2023-01-01 to 2023-12-01 as ufør23
+destring ufør23, force
+collapse(count) ufør23, by(PERSONID_1)
+merge ufør23 into alle
+use alle
+generate ufør2023 = 0
+replace ufør2023 = 1 if ufør23 > 0 
+
+tabulate ufør2023
+
+keep if alder >= 16 & alder < 30
+histogram alder
+tabulate alder
+
+//create-dataset lenkeaap
+//import LENKE OM DEN TRENGER DET
+
+//Til å joine fnr med kursantall
+create-dataset lenkekurs
+import ds/NUDB_KURS_FNR as fnr
+merge fnr into kursdata
+
+// Aggregerer samme for kursdeltagelse. 
+use kursdata
+
+collapse (count) kurstype, by(fnr)
+
+rename kurstype ant_kurs
+merge ant_kurs into alle
+use alle
+//TEST
+generate utdanning = 0 
+replace utdanning = 1 if ant_kurs >=1
+tabulate utdanning jobb2023, colpct
+
+// NEET kan gjerne ha en variant som er korttids-NEET
+
+generate neet2023 = 0
+
+replace neet2023 = 1 if utdanning == 0 & jobb2023 == 0 & arbmarkstatus != '1' & arbmarkstatus !='2' 
+// replace need2021 = 2 if utdanning == 0 &
+
+tabulate jobb2020
+tabulate jobb2023
+tabulate jobb2023 arbmarkstatus
+tabulate utdanning
+tabulate utdanning, cellpct
+
+tabulate neet2023
+tabulate neet2023, cellpct
+tabulate neet2023 Østfold
+tabulate kom if fylke == '30' 
+tabulate alder neet2023
+
+tabulate fylke 
+
+clone-variables bosted -> komnavn
+
+define-labels komtekst '3001' 'Halden' '3002' 'Moss' '3003' 'Sarpsborg' '3004' 'Fredrikstad' '3005' 'Drammen' '3006' 'Kongsberg' '3007' 'Ringerike' '3011' 'Hvaler' '3012' 'Aremark' '3013' 'Marker' '3014' 'Indre Østfold' '3015' 'Skiptvet' '3016' 'Rakkestad' '3017' 'Råde' '3018' 'Våler (Viken)' '3019' 'Vestby' '3020' 'Nordre Follo' '3021' 'Ås' '3022' 'Frogn' '3023' 'Nesodden' '3024' 'Bærum' '3025' 'Asker' '3026' 'Aurskog-Høland' '3027' 'Rælingen' '3028' 'Enebakk' '3029' 'Lørenskog' '3030' 'Lillestrøm' '3031' 'Nittedal' '3032' 'Gjerdrum' '3033' 'Ullensaker' '3034' 'Nes' '3035' 'Eidsvoll' '3036' 'Nannestad' '3037' 'Hurdal' '3038' 'Hole' '3039' 'Flå' '3040' 'Nesbyen' '3041' 'Gol' '3042' 'Hemsedal' '3043' 'Ål' '3044' 'Hol' '3045' 'Sigdal' '3046' 'Krødsherad' '3047' 'Modum' '3048' 'Øvre Eiker' '3049' 'Lier' '3050' 'Flesberg' '3051' 'Rollag' '3052' 'Nore og Uvdal' '3053' 'Jevnaker' '3054' 'Lunner'
+//clone-variables bosted -> komnavn
+assign-labels komnavn komtekst
+
+import ds/BEFOLKNING_INVKAT as invkat
+generate innvandrer = 0 
+replace innvandrer = 2 if invkat == 'C' 
+replace innvandrer = 1 if invkat == 'B'
+recode innvandrer (0 = 0 'Øvrig') (1 = 1 'Innvandrer') (2 = 2 'Norskfødt')
+tabulate innvandrer
+//recode invkat ('A - Født i Norge med to norskfødte foreldre' 'F - Norskfødte med én utenlandsfødt forelder' = 'Norsk')
+
+// Lager abø og oslo 
+clone-variables kom -> OsloViken
+destring OsloViken
+recode OsloViken (0301 = 4 'Oslo')(3019/3037 3053 3054 = 2 'Akershus')(3005/3007 3038/3052 = 3 'Buskerud')(3001/3004 3011/3018 = 1'Østfold') (1101/1875 2111 3401/3825 2580 4201/5444 = 5 'Resten av landet') 
+tabulate OsloViken neet2023, freq rowpct
+
+clone-variables kom -> polreg
+destring polreg
+recode polreg (3024 3025 = 1 'Asker og Bærum') (3019/3023 3028 = 2 'Follo') (3032 3033 3034 3035 3036 3037 = 3 'Gardermoregionen') (3053 3054 = 4 'Hadeland')  (3026 3027 3029/3031 = 5 'Nedre Romerike') (3005 3048/3049 = 6 'Drammensregionen') (3039/3044 = 7 'Hallingdal')  (3006 3045 3050/3052 = 8 'Kongsbergsregionen') (3007 3038 3046 3047 = 9 'Ringeriksregionen') (3001 3012 = 10 'Halden og Aremark') (3013/3016 = 11 'Indre Østfold') (3002 3017 3018 = 12 'Mosseregionen') (3003 3004 3011 = 1 'Nedre Glomma') (301 = 13 'Oslo') (0000/2699 3401/9999 = 14 'Ikke Oslo/Viken')
+tabulate polreg neet2023
+
+
+generate toårig = 0
+replace toårig = 0 if alder > 15 & alder <= 17
+replace toårig = 1 if alder > 17 & alder <= 19
+replace toårig = 2 if alder > 19 & alder <= 21
+replace toårig = 3 if alder > 21 & alder <= 23
+replace toårig = 4 if alder > 23 & alder <= 25
+replace toårig = 5 if alder > 25 & alder <= 27
+replace toårig = 6 if alder > 27 & alder <= 29
+recode toårig (0 = 0 '16-17 år') (1 = 1 '18-19 år')(2 = 2 '20-21 år')(3 = 3 '22-23 år')(4 = 4 '24-25 år')(5 = 5 '26-27 år')(6=6 '28-29 år')
+tabulate toårig
+
+generate treårig = 0
+replace treårig = 0 if alder > 15 & alder <= 18
+replace treårig = 1 if alder > 18 & alder <= 21
+replace treårig = 2 if alder > 21 & alder <= 24
+replace treårig = 3 if alder > 24 & alder <= 27
+replace treårig = 4 if alder > 27 & alder <= 29
+recode treårig (0 = 0 '16-18 år') (1 = 1 '19-21 år')(2 = 2 '22-24 år')(3 = 3 '25-27 år')(4 = 4 '28-29 år')
+//define-labels treåriglbl 0 '16-18 år' 1 '19-21 år' 2 '22-24 år' 3 '25-27 år' 4 '28-29 år'
+//assign-labels treårig treåriglbl
+tabulate treårig
+
+// Testen gikk fint, får fornuftige tall livet er bra
+
+//Antall/Andel Lneets 15-24 per kom
+tabulate komnavn neet2023 if fylke == '30' & alder < 25
+
+tabulate komnavn neet2023 if fylke == '30' & alder < 25, rowpct
+// Antall og andel Lneets 15-29 per kom
+tabulate komnavn neet2023 if fylke == '30' 
+tabulate komnavn neet2023 if fylke == '30', rowpct
+// Antall/Andel Lneet 15-24 kom kjønn
+tabulate komnavn kjønn if fylke == '30' & neet2023 == 1 & alder <25
+tabulate komnavn  kjønn if fylke == '30' & neet2023== 1 & alder <25, rowpct
+
+// Antall/Andel Lneet 15-29 kom kjønn
+tabulate komnavn kjønn if fylke == '30' & neet2023 == 1
+tabulate komnavn  kjønn if fylke == '30' & neet2023== 1, rowpct
+
+// Antall/Andel Lneet 15-24 kom innvandrer (Anbefaler politiske regioner, eller økonomiske)
+tabulate komnavn neet2023 if fylke == '30' & innvandrer == 1 & alder <25
+tabulate komnavn neet2023 if fylke == '30' & innvandrer == 1 & alder <25, rowpct
+tabulate komnavn neet2023 if fylke == '30' & innvandrer == 0 & alder <25, rowpct
+
+// Antall/Andel Lneet 15-29 kom innvandrer (Anbefaler politiske regioner, eller økonomiske)
+tabulate komnavn neet2023 if fylke == '30' & innvandrer == 1 & alder
+tabulate komnavn neet2023 if fylke == '30' & innvandrer == 1 & alder, rowpct
+tabulate komnavn neet2023 if fylke == '30' & innvandrer == 0 & alder, rowpct
+
+// Antall/Andel Lneet 15-24 kom innvandrer (POLREG)
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 1 & alder <25
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 1 & alder <25, rowpct
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 0 & alder <25, rowpct
+
+// Antall/Andel Lneet 15-29 kom innvandrer (POLREG)
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 1 & alder
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 1 & alder, rowpct
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 0 & alder, rowpct
+
+
+//Antall/Andel Lneet 15-24 norskfødt med innvandrerbakrunn (Anbefaler kun fylke)
+tabulate komnavn neet2023 if fylke == '30' & innvandrer == 2 & alder <25
+tabulate komnavn neet2023 if fylke == '30' & innvandrer == 2 & alder <25, rowpct
+
+// Antall/Andel Lneet 15-29 kom norskfødt med innvandrerbakgrunn (Anbefaler kun fylke)
+tabulate komnavn neet2023 if fylke == '30' & innvandrer == 2 & alder
+tabulate komnavn neet2023 if fylke == '30' & innvandrer == 2 & alder, rowpct
+
+// Antall/Andel Lneet 15-24 kom norskfødt med innvandrerbakgrunn (POLREG)
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 2 & alder <25
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 2 & alder <25, rowpct
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 0 & alder <25, rowpct
+
+// Antall/Andel Lneet 15-29 kom norskfødt med innvandrerbakgrunn (POLREG)
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 2 & alder
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 2 & alder, rowpct
+tabulate polreg neet2023 if fylke == '30' & innvandrer == 0 & alder, rowpct
+
+//Antall/Andel Lneet 15-24 norskfødt med innvandrerbakrunn (FYLKE)
+tabulate OsloViken neet2023 if fylke == '30' & innvandrer == 2 & alder <25
+tabulate OsloViken neet2023 if fylke == '30' & innvandrer == 2 & alder <25, rowpct
+
+// Antall/Andel Lneet 15-29 kom norskfødt med innvandrerbakgrunn (FYLKE)
+tabulate OsloViken neet2023 if fylke == '30' & innvandrer == 2 & alder
+tabulate OsloViken neet2023 if fylke == '30' & innvandrer == 2 & alder, rowpct
+
+// toårig fylke
+tabulate toårig neet2023 if OsloViken == 1
+tabulate toårig neet2023 if OsloViken == 1, rowpct
+
+tabulate toårig neet2023 if OsloViken == 2
+tabulate toårig neet2023 if OsloViken == 2, rowpct
+
+tabulate toårig neet2023 if OsloViken == 3
+tabulate toårig neet2023 if OsloViken == 3, rowpct
+
+tabulate toårig neet2023 if OsloViken == 4
+tabulate toårig neet2023 if OsloViken == 4, rowpct
+
+tabulate toårig neet2023 if OsloViken == 5
+tabulate toårig neet2023 if OsloViken == 5, rowpct
+
+//treårig fylke
+tabulatetreårig neet2023 if OsloViken == 1
+tabulatetreårig neet2023 if OsloViken == 1, rowpct
+
+tabulatetreårig neet2023 if OsloViken == 2
+tabulatetreårig neet2023 if OsloViken == 2, rowpct
+
+tabulatetreårig neet2023 if OsloViken == 3
+tabulatetreårig neet2023 if OsloViken == 3, rowpct
+
+tabulatetreårig neet2023 if OsloViken == 4
+tabulatetreårig neet2023 if OsloViken == 4, rowpct
+
+tabulatetreårig neet2023 if OsloViken == 5
+tabulatetreårig neet2023 if OsloViken == 5, rowpct
+
+// Polreg treårig 
+tabulate polreg neet2023 treårig  if fylke == '30', rowpct freq
+//polreg toårig
+tabulate polreg neet2023 toårig  if fylke == '30', rowpct freq
+//polreg kjønn
+tabulate polreg neet2023 kjønn  if fylke == '30', rowpct freq
+
+// Hjelpe og grunnstønad, som helse
+
+// Inntekt foreldre, gjerne 3 grupper. 1g 2-3g eller mer enn 3. 
+
+//Henter inntekt etter skatt per forbruksenhet
+import ds/INNTEKT_HUSH_IES_EU  2022-12-31 as inntekthus
+
+//Henter medianinntekt per forbruksenhet på husholdningsinndelingen til levekårsundersøkelsen
+tabulate OsloViken, summarize(inntekthus) p50
+summarize inntekthus 
+
+tabulate OsloViken, summarize( inntekthus) p50
+tabulate OsloViken, summarize( inntekthus)
+
+//lager lavinntektsvariabel med median fra dette utvalget med inntektsgrense 60% av median  uten studenter og aleneboende under 18 i 2022
+generate lavinntekt=1
+replace lavinntekt=1 if inntekthus<268200
+replace lavinntekt=2 if inntekthus >268200
+tabulate innvandrer lavinntekt
+tabulate innvandrer, summarize(inntekthus)p50
+tabulate innvandrer, summarize(inntekthus)
+generate grunnbeløp=0
+replace grunnbeløp=1 if inntekthus <=222300
+replace grunnbeløp = 2 if inntekthus >= 222300 & inntekthus  <446000
+replace grunnbeløp = 3 if inntekthus > 446000
+tabulate grunnbeløp
+replace grunnbeløp = . if grunnbeløp == 0
+tabulate grunnbeløp
+histogram inntekthus if innvandrer
+tabulate innvandrer grunnbeløp
+tabulate innvandrer grunnbeløp, rowpct
+// BEFOLKNING_REGSTAT_HUSHTYP se etter husholdningstyper som kan være ook for husholdnigsinntekt også (som test)
+// Sosial bakgrunn 
+
+import ds/NUDB_SOSBAK as sosbak
+tabulate sosbak if innvandrer == 1 
+clone-variables sosbak -> sosbakgr  
+destring sosbakgr
+tabulate sosbakgr 
+replace sosbakgr = 1 if sosbakgr == 1 & sosbakgr == 2
+replace sosbakgr = 3 if sosbakgr == 4
+drop if sosbakgr == 9
+define-labels sosbaklbl 3 "Grunnskole" 2 "VGS" 1 "Høyere utdanning"
+assign-labels  sosbakgr sosbaklbl
+tabulate sosbakgr
+//generate sosbakgrunn
+//replace sosialbakgr = "VGS" if sosbakgr == "3 - Videregående. Mor eller far eller begge har utdanning på nivå 3, 4 eller 5 "
+//replace sosialbakgr = "Høyere" if sosbakgr == "1" & sosbakgr == "2"
+//replace sosialbakgr = "Grunnskole/Uoppgitt" if sosbakgr == "4" & sosbakgr == "9"
+//tabulate sosialbakgr
+
+coefplot regress inntekthus c.alder i.sosbakgr i.polreg if neet2023 == 1, standardize
+
+// Barnevern tar siste 10 år med barnevernstiltak. Det er en indikasjon på at ting ikke var helt bra hjemme. 
+// Tiltakene kan ha tatt slutt med ulike utfall. 
+create-dataset Barnevern
+import ds/BEFOLKNING_STATUSKODE 2021-01-01 as regstat
+keep if regstat == '1'
+import ds/BEFOLKNING_FOEDSELS_AAR_MND as faarmnd
+import ds/BEFOLKNING_KOMMNR_FAKTISK 2021-01-01 as bosted
+generate fylke = substr(bosted, 1, 2)
+generate kom = substr(bosted, 1, 4)
+keep if fylke == '30' | fylke == '01' |fylke == '02' | fylke == '06' | fylke == '03'
+generate alder = 2021 - int(faarmnd/100)
+keep if alder >= 16 & alder < 30
+
+import ds/BARNEVERN_OMSORG 2011-12-31 as vernomsorg11
+import ds/BARNEVERN_OMSORG 2012-12-31 as vernomsorg12
+import ds/BARNEVERN_OMSORG 2013-12-31 as vernomsorg13
+import ds/BARNEVERN_OMSORG 2014-12-31 as vernomsorg14
+import ds/BARNEVERN_OMSORG 2015-12-31 as vernomsorg15
+import ds/BARNEVERN_OMSORG 2016-12-31 as vernomsorg16
+import ds/BARNEVERN_OMSORG 2017-12-31 as vernomsorg17
+import ds/BARNEVERN_OMSORG 2018-12-31 as vernomsorg18
+import ds/BARNEVERN_OMSORG 2019-12-31 as vernomsorg19
+import ds/BARNEVERN_OMSORG 2020-12-31 as vernomsorg20
+import ds/BARNEVERN_OMSORG 2021-12-31 as vernomsorg21
+import ds/BARNEVERN_OMSORG 2022-12-31 as vernomsorg22
+
+destring vernomsorg11, force
+destring vernomsorg12, force
+destring vernomsorg13, force
+destring vernomsorg14, force
+destring vernomsorg15, force
+destring vernomsorg16, force
+destring vernomsorg17, force
+destring vernomsorg18, force
+destring vernomsorg19, force
+destring vernomsorg20, force
+destring vernomsorg21, force
+destring vernomsorg22, force
+collapse(count) vernomsorg11 vernomsorg12 vernomsorg13 vernomsorg14 vernomsorg15 vernomsorg16 vernomsorg17 vernomsorg18 vernomsorg19 vernomsorg20 vernomsorg21 vernomsorg22, by(PERSONID_1)
+tabulate vernomsorg20
+//replace vernomsorg20 = 0 
+//replace vernomsorg20 = 1 if vernomsorg20 >0 
+
+merge vernomsorg11 into alle
+merge vernomsorg12 into alle
+merge vernomsorg13 into alle
+merge vernomsorg14 into alle
+merge vernomsorg15 into alle
+merge vernomsorg16 into alle
+merge vernomsorg17 into alle
+merge vernomsorg18 into alle
+merge vernomsorg19 into alle
+merge vernomsorg20 into alle
+merge vernomsorg21 into alle
+merge vernomsorg22 into alle
+
+create-dataset barnevern2
+import ds/BEFOLKNING_STATUSKODE 2021-01-01 as regstat
+keep if regstat == '1'
+import ds/BEFOLKNING_FOEDSELS_AAR_MND as faarmnd
+import ds/BEFOLKNING_KOMMNR_FAKTISK 2021-01-01 as bosted
+generate fylke = substr(bosted, 1, 2)
+generate kom = substr(bosted, 1, 4)
+keep if fylke == '30' | fylke == '01' |fylke == '02' | fylke == '06' | fylke == '03'
+generate alder = 2021 - int(faarmnd/100)
+keep if alder >= 16 & alder < 30
+
+import ds/BARNEVERN_HJELPETIL 2011-12-31 as hjelpomsorg11
+import ds/BARNEVERN_HJELPETIL 2012-12-31 as hjelpomsorg12
+import ds/BARNEVERN_HJELPETIL 2013-12-31 as hjelpomsorg13
+import ds/BARNEVERN_HJELPETIL 2014-12-31 as hjelpomsorg14
+import ds/BARNEVERN_HJELPETIL 2015-12-31 as hjelpomsorg15
+import ds/BARNEVERN_HJELPETIL 2016-12-31 as hjelpomsorg16
+import ds/BARNEVERN_HJELPETIL 2017-12-31 as hjelpomsorg17
+import ds/BARNEVERN_HJELPETIL 2018-12-31 as hjelpomsorg18
+import ds/BARNEVERN_HJELPETIL 2019-12-31 as hjelpomsorg19
+import ds/BARNEVERN_HJELPETIL 2020-12-31 as hjelpomsorg20
+import ds/BARNEVERN_HJELPETIL 2021-12-31 as hjelpomsorg21
+import ds/BARNEVERN_HJELPETIL 2022-12-31 as hjelpomsorg22
+
+destring hjelpomsorg11, force
+destring hjelpomsorg12, force
+destring hjelpomsorg13, force
+destring hjelpomsorg14, force
+destring hjelpomsorg15, force
+destring hjelpomsorg16, force
+destring hjelpomsorg17, force
+destring hjelpomsorg18, force
+destring hjelpomsorg19, force
+destring hjelpomsorg20, force
+destring hjelpomsorg21, force
+destring hjelpomsorg22, force
+collapse(count) hjelpomsorg11 hjelpomsorg12 hjelpomsorg13 hjelpomsorg14 hjelpomsorg15 hjelpomsorg16 hjelpomsorg17 hjelpomsorg18 hjelpomsorg19 hjelpomsorg20 hjelpomsorg21 hjelpomsorg22, by(PERSONID_1)
+tabulate hjelpomsorg20
+//replace hjelpomsorg20 = 0 
+//replace hjelpomsorg20 = 1 if hjelpomsorg20 >0 
+merge hjelpomsorg11 into alle
+merge hjelpomsorg12 into alle
+merge hjelpomsorg13 into alle
+merge hjelpomsorg14 into alle
+merge hjelpomsorg15 into alle
+merge hjelpomsorg16 into alle
+merge hjelpomsorg17 into alle
+merge hjelpomsorg18 into alle
+merge hjelpomsorg19 into alle
+merge hjelpomsorg20 into alle
+merge hjelpomsorg21 into alle
+merge hjelpomsorg22 into alle
+
+//create-dataset barnevern3
+//import ds/BARNEVERN_HJELPETIL 2020-12-31 as hjelpomsorg20
+//destring hjelpomsorg20, force
+//collapse(count) hjelpomsorg20, by(PERSONID_1)
+//tabulate hjelpomsorg20
+
+
+use alle
+generate barnevern = 0
+replace barnevern = 1 if  hjelpomsorg11 == 1 | hjelpomsorg12 == 1 | hjelpomsorg13 == 1 | hjelpomsorg14 == 1 | hjelpomsorg15 == 1 | hjelpomsorg16 == 1 | hjelpomsorg17 == 1 | hjelpomsorg18 == 1 | hjelpomsorg19 == 1 |hjelpomsorg20 == 1 | hjelpomsorg21 == 1 | hjelpomsorg22 == 1 | vernomsorg11 == 1 | vernomsorg12 == 1 | vernomsorg13 == 1 | vernomsorg14 == 1 | vernomsorg15 == 1 | vernomsorg16 == 1 | vernomsorg17 == 1 | vernomsorg18 == 1 | vernomsorg19 == 1 | vernomsorg20 == 1 | vernomsorg21 == 1 | vernomsorg22 == 1
+tabulate barnevern, freq 
+
+tabulate barnevern, freq cellpct
+
+import ds/GRUNNSTFDT_MOTTAK 2023-11-16 as grunnstønad
+// tror det er 30.11.2020 som er nyest, sjekker
+import ds/HJELPSTFDT_MOTTAK 2023-11-16 as hjelpestønad
+//Disse må være i kombo, tror ikke Ballo fiksa det her riktig egentlig
+destring grunnstønad hjelpestønad, force
+//Kombinerer
+generate allstønad = 0 
+replace allstønad = 1 if grunnstønad | hjelpestønad == 1
+tabulate allstønad 
+tabulate allstønad if neet2023 == 1
+tabulate ufør2023
+tabulate aap2023
+generate allhelse = 0 
+replace allhelse = 1 if allstønad == 1 & ufør2023 == 1 | aap2023 == 1
+tabulate allhelse
+tabulate allhelse if neet2023 
+histogram inntekthus if neet2023 == 1 & allhelse == 1
+histogram inntekthus if neet2023 == 1 & allhelse == 0
+tabulate sosbakgr allhelse if neet2023 == 1, colpct
+tabulate sosbakgr allhelse if neet2023 == 1, rowpct freq
+drop if sosbakgr == 9
+tabulate sosbakgr allhelse if neet2023 == 1, rowpct freq
+tabulate sosbakgr allhelse if neet2023 == 1, colpct freq
+
+// fdb/BEFOLKNING_INNGRUNN1 as innvandrergrunn
+create-dataset telledager
+// En nyanse her. De hadde allerede bodd til 2022-12-31. Så egentlig nesten 2 år ekstra forutenom de som er utvandret
+import-event ds/BOSATTEFDT_BOSTED 1991-12-31 to 2022-12-31 as norskbodd
+replace STOP@norskbodd = date(2022,12,31) if STOP@norskbodd > date(2022,12,31)
+replace START@norskbodd = date(1991,12,31) if START@norskbodd < date(1991,12,31)
+generate dager = STOP@norskbodd - START@norskbodd + 1
+collapse(sum) dager, by(PERSONID_1)
+boxplot dager
+summarize dager
+histogram dager
+drop if sysmiss(dager)
+clone-variables dager -> tidsintervaller
+
+// Botid, introduksjonsordningen tar 3 år. Derav disse intervallene. IMDi har en 0-4 år; 5-9 år og 10+ år inndeling også. 
+// Men dette er tall for 2022, så de har egentlig 1 år ekstra med botid, dette er folk som uansett er registrert bosatte i 2023, så det har ingenting å si om vi ikke kan "telle" dager etter 31-12-2022, fordi de må ha 1år + det som står der. 
+
+recode tidsintervaller ( 1/1095 = 1 'Opp til 5 år') (1096/2920 = 2 '5-10 år') (0 1826/99999999999 = 3 'Mer enn 10 år')
+tabulate tidsintervaller, cellpct freq
+// KEEP IF dager mindre enn feks 2 år? For Ukrainernes del?
+merge tidsintervaller into alle
+use alle
+
+replace utd = substr(utd,1,1)
+
+destring utd
+tabulate utd
+
+generate dropout = 0
+//replace dropout = 1 if utd22 < 4 & utd22 > 3 & alder > 17
+
+// Det er bare folk over 46 som kan ha UTD22 == 3. Så jeg tror de som ikke har fullført 4 er dropouts
+
+replace dropout = 1 if utd <4   & alder > 17
+tabulate utd
+tabulate dropout
+recode dropout (. = 0)
+tabulate dropout
+tabulate alder utd if dropout ==1 
+
+create-dataset utfallutd
+import-event ds/NUDB_KURS_UTFALL 2010-08-01 to 2023-08-01 as utfall
+tabulate utfall
+keep if utfall == '2'
+tabulate utfall
+use lenkekurs
+merge fnr into utfallutd
+use utfallutd
+tabulate utfall
+collapse(count) utfall, by(fnr)
+tabulate utfall
+replace utfall = 1 if utfall <=8
+tabulate utfall
+// Det er bare folk over 46 som kan ha UTD22 == 3. Så jeg tror de som ikke har fullført 4 er dropouts
+merge utfall into alle
+use alle
+
+tabulate tidsintervaller landgruppe
+tabulate landgruppe
+
+import ds/INNTEKT_WLONN 2021-12-31 as lønn2021
+import ds/INNTEKT_WLONN 2020-12-31 as lønn2020
+import ds/INNTEKT_WLONN 2019-12-31 as lønn2019
+import ds/INNTEKT_WLONN 2018-12-31 as lønn2018
+import ds/INNTEKT_WLONN 2017-12-31 as lønn2017
+import ds/INNTEKT_WLONN 2014-12-31 as lønn2014
+import ds/INNTEKT_WLONN 2012-12-31 as lønn2012
+import ds/INNTEKT_WLONN 2010-12-31 as lønn2010
+
+generate tidlarb = 0
+replace tidlarb = 1 if lønn2010 > 21480
+replace tidlarb = 1 if lønn2012 > 23435
+replace tidlarb = 1 if lønn2014 > 24430
+replace tidlarb = 1 if lønn2017 > 27085
+replace tidlarb = 1 if lønn2018 > 28430
+replace tidlarb = 1 if lønn2019 > 30140
+replace tidlarb = 1 if lønn2020 > 31720  // Estimated value
+replace tidlarb = 1 if lønn2021 > 33300  // Estimated value
+
+recode lønn2010 lønn2012 lønn2014 lønn2017 lønn2018 lønn2019 lønn2020 lønn2021 (. = 0)
+
+import ds/BEFOLKNING_INNGRUNN1 as inngrunn
+tabulate inngrunn neet2023, freq rowpct
+logit neet2023 c.alder##i.sosbakgr i.grunnbeløp i.tidsintervaller##landgruppe, mfx(dydx) 
+
+logit neet2023 c.alder i.sosbakgr i.lavinntekt, mfx(dydx) mfx_at(overall)
+logit neet2023 c.alder i.sosbakgr i.grunnbeløp, mfx(dydx) mfx_at(overall)
+logit neet2023 c.alder i.sosbakgr inntekthus, mfx(dydx) mfx_at(overall)
+logit neet2023 c.alder##i.sosbakgr i.grunnbeløp, mfx(dydx)
+
+tabulate tidlarb neet2023, rowpct freq
+tabulate OsloViken neet2023 if tidlarb == 0, rowpct freq
+tabulate OsloViken neet2023 if barnevern == 1, rowpct freq
+tabulate OsloViken neet2023 if dropout == 1, rowpct freq
+
+tabulate OsloViken neet2023 , rowpct freq 
+tabulate OsloViken neet2023 if kjønn == "1", rowpct freq // mann
+tabulate OsloViken neet2023 if kjønn == "2", rowpct freq // kvinne
+
+tabulate OsloViken neet2023 if innvandrer == 1, rowpct freq //utlandskfødt
+tabulate OsloViken neet2023 if innvandrer == 0, rowpct freq //Øvrig befolkning
+
+
+
+tabulate alder  neet2023 sosbakgr, rowpct 
+tabulate alder sosbakgr if neet2023 == 1, cellpct
+tabulate alder neet2023 sosbakgr , colpct
+tabulate alder neet2023 if sosbakgr == 1, rowpct
+tabulate alder neet2023 if sosbakgr == 2, rowpct
+tabulate alder neet2023 if sosbakgr == 3, rowpct
+tabulate alder neet2023, rowpct
+
+tabulate alder neet2023 if grunnbeløp == 1, rowpct
+tabulate alder neet2023 if grunnbeløp == 2, rowpct
+tabulate alder neet2023 if grunnbeløp == 3, rowpct
+tabulate alder neet2023, rowpct
+
+import ds/BEFOLKNING_BARN3_I_HUSH 2023-01-01 as borhosmor
+replace borhosmor = 1 if borhosmor > 0
+
+// La inn at de bor hos foreldre, sinnsyke tall 
+tabulate alder neet2023 if grunnbeløp == 1 & borhosmor == 1, rowpct freq
+tabulate alder neet2023 if grunnbeløp == 2 & borhosmor == 1, rowpct freq
+tabulate alder neet2023 if grunnbeløp == 3 & borhosmor == 1, rowpct freq
+
+tabulate neet2023 kjønn if borhosmor == 1, rowpct freq
+tabulate neet2023 kjønn if borhosmor == 1 & innvandrer == 1 , rowpct freq
+tabulate neet2023 kjønn if borhosmor == 1 & innvandrer == 0 , rowpct freq
+
+tabulate alder neet2023 if grunnbeløp == 1 & borhosmor == 0, rowpct freq
+tabulate alder neet2023 if grunnbeløp == 2 & borhosmor == 0, rowpct freq
+tabulate alder neet2023 if grunnbeløp == 3 & borhosmor == 0, rowpct freq
+ 
+tabulate alder neet2023 if grunnbeløp == 1 & borhosmor == 1, rowpct 
+tabulate alder neet2023 if grunnbeløp == 2 & borhosmor == 1, rowpct 
+tabulate alder neet2023 if grunnbeløp == 3 & borhosmor == 1, rowpct 
+tabulate alder neet2023, rowpct
+tabulate OsloViken tidlarb if neet2023 == 1, rowpct freq
+
+import ds/KRIMINALITET_SIKTEDE_GRUPPELOV 2020-12-31 as forbryter
+tabulate forbryter innvandrer, freq colpct
+tabulate forbryter OsloViken if neet2023 == 1, freq colpct
+tabulate OsloViken if neet2023 == 1, freq colpct
+tabulate neet2023, freq colpct
+tabulate forbryter
+//tabulate OsloViken innvandrer if forbryter == 0 & kjønn == "1", freq colpct
+tabulate OsloViken innvandrer if kjønn == "1", freq rowpct
+
+tabulate  forbryter neet2023, freq rowpct
+tabulate barnevern neet2023, freq rowpct
+tabulate  OsloViken neet2023, freq rowpct
+tabulate OsloViken neet2023 if grunnbeløp == 1 & borhosmor == 1, freq rowpct
+tabulate OsloViken neet2023 if grunnbeløp == 3 & borhosmor == 1, freq rowpct
+tabulate OsloViken neet2023 if allhelse == 1, freq rowpct
+tabulate neet2023 allhelse, freq rowpct
+
+tabulate borhosmor allhelse innvandrer, freq rowpct
+
+tabulate borhosmor allhelse innvandrer if neet2023==1, freq rowpct
+
+
+tabulate OsloViken neet2023 if grunnbeløp == 1 & borhosmor == 1, rowpct freq //Øvrig befolkning
+tabulate OsloViken neet2023 if sosbakgr == 3, rowpct freq //Øvrig befolkning
+tabulate OsloViken neet2023 if sosbakgr == 3, rowpct
+tabulate OsloViken neet2023 if sosbakgr == 3, freq
+tabulate OsloViken neet2023 if innvandrer == 0
+tabulate komnavn neet2023 if innvandrer == 0 & OsloViken == 1 | OsloViken == 2 | OsloViken == 3
+
+replace allhelse = 0 if allhelse <1 
+tabulate allhelse
+tabulate neet2023 allhelse, freq rowpct
+tabulate neet2023 allhelse, freq colpct
+tabulate neet2023 allhelse, freq rowpct
+tabulate neet2023 grunnbeløp, freq colpct
+tabulate neet2023  lavinntekt if borhosmor, freq colpct
+tabulate neet2023 grunnbeløp if borhosmor & grunnbeløp !=1, freq colpct
+
+// Må lage en binær innvandringsvariabel
+
+
+tabulate alder if invkat == 'A'
+
+generate innvandrerb = 0 
+replace innvandrerb = 1 if invkat == 'B' & 'C' & 'E'
+recode innvandrerb (0 = 0 'Norsk') (1 = 1 'Innvandrer')
+tabulate innvandrerb
+
+
+tabulate neet2023 dropout, freq colpct
+tabulate neet2023 dropout, freq rowpct
+tabulate neet2023 barnevern, freq colpct
+tabulate neet2023 tidlarb, freq colpct
+tabulate neet2023 tidlarb, freq rowpct
+tabulate neet2023 allhelse, freq colpct
+tabulate neet2023 grunnbeløp if borhosmor == 1, freq rowpct
+tabulate neet2023 barnevern, freq rowpct
+tabulate neet2023 innvandrerb if OsloViken == 3, freq colpct
+tabulate neet2023 OsloViken  if grunnbeløp == 1 & tidlarb == 0 & dropout == 1 & allhelse == 1, freq colpct
+
+tabulate alder allhelse if OsloViken == 1 & neet2023 == 1, freq rowpct
+tabulate alder allhelse if OsloViken == 2 & neet2023 == 1, freq rowpct
+tabulate alder allhelse if OsloViken == 3 & neet2023 == 1, freq rowpct
+tabulate alder allhelse if OsloViken == 4 & neet2023 == 1, freq rowpct
+tabulate alder allhelse if neet2023 == 1, freq rowpct
+
+tabulate neet2023 innvandrerb, freq colpct
+tabulate neet2023 dropout, freq rowpct
+tabulate neet2023 sosbakgr, freq rowpct
+tabulate neet2023 sosbakgr, freq colpct
+tabulate neet2023 , freq colpct
+tabulate neet2023 kjønn, freq colpct
+
+coefplot logit neet2023 i.tidlarb i.grunnbeløp i.dropout i.allhelse, level(95)
+logit neet2023 i.tidlarb i.grunnbeløp i.dropout i.allhelse, mfx(dydx)
+
+coefplot logit neet2023 i.tidlarb i.grunnbeløp i.sosbakgr i.dropout i.allhelse i.innvandrerb, level(95)
+logit neet2023 i.tidlarb i.grunnbeløp i.sosbakgr i.dropout i.allhelse i.innvandrerb, mfx(dydx)
+
+coefplot logit neet2023 i.tidlarb i.grunnbeløp i.sosbakgr i.dropout i.allhelse i.barnevern, level(95)
+logit neet2023 i.tidlarb i.grunnbeløp i.sosbakgr i.dropout i.allhelse i.barnevern, mfx(dydx)
+
+coefplot logit neet2023 i.tidlarb i.grunnbeløp i.sosbakgr i.dropout i.barnevern if allhelse == 0 , level(95)
+logit neet2023 i.tidlarb i.grunnbeløp i.sosbakgr i.dropout i.barnevern if allhelse == 0, mfx(dydx)
+
+coefplot logit neet2023 i.tidlarb i.grunnbeløp i.sosbakgr i.dropout i.barnevern if allhelse == 0 
+logit neet2023 i.tidlarb i.grunnbeløp i.sosbakgr i.dropout i.barnevern if allhelse == 0, mfx(dydx)
+
+tabulate OsloViken neet2023 if innvandrerb == 1, rowpct freq //
+tabulate OsloViken neet2023 if innvandrerb == 0, rowpct freq //
+tabulate OsloViken innvandrerb if  neet2023== 1, rowpct freq //
+
+tabulate OsloViken tidlarb if  neet2023== 1, rowpct freq
+tabulate OsloViken tidlarb if  neet2023== 0, rowpct freq
+
+tabulate OsloViken dropout if  neet2023== 1, rowpct freq
+
+tabulate neet2023 
+
+coefplot logit neet2023 i.tidlarb i.grunnbeløp i.dropout i.allhelse, level(95)
+coefplot logit neet2023 i.tidlarb i.grunnbeløp i.dropout if OsloViken == 1, level(95)
+coefplot logit neet2023 i.tidlarb i.grunnbeløp i.dropout if OsloViken == 2, level(95)
+coefplot logit neet2023 i.tidlarb i.grunnbeløp i.dropout if OsloViken == 3, level(95)
+
+tabulate OsloViken innvandrerb if neet2023 == 1, rowpct freq
+tabulate tidsintervaller neet2023 if innvandrerb == 1, rowpct freq
+tabulate tidsintervaller neet2023 if innvandrerb == 1 & dropout == 1, rowpct freq
+tabulate tidsintervaller innvandrerb if dropout == 1, rowpct freq
+tabulate tidsintervaller dropout if innvandrerb == 1, rowpct freq
+tabulate tidsintervaller dropout if innvandrerb == 0, rowpct freq
+tabulate tidsintervaller innvandrerb if dropout == 0, rowpct freq
+// Okai, men hva om de vil ha tidsintervaller som er kortere og NEETs som ikke er langtids? 
+clone-variables dager -> tidsintervaller2
+
+
+coefplot logit neet2023 i.tidlarb i.allhelse i.dropout i.innvandrerb if OsloViken == 1, level(95)
+coefplot logit neet2023 i.tidlarb i.allhelse i.dropout i.innvandrerb if OsloViken == 2, level(95)
+coefplot logit neet2023 i.tidlarb i.allhelse i.innvandrerb##i.dropout if OsloViken == 3, level(95)
+tabulate neet2023 dropout if innvandrerb== 1, colpct
+
+logit neet2023 i.dropout i.innvandrerb, mfx(dydx)
+logit neet2023 i.dropout##i.innvandrerb, mfx(dydx)
+logit neet2023 i.dropout##i.innvandrerb, mfx(dydx) mfx_at(median)
+coefplot logit neet2023 i.OsloViken i.tidlarb i.grunnbeløp, level(95)
+coefplot logit neet2023 i.OsloViken i.tidlarb i.grunnbeløp, level(95)
+
+tabulate OsloViken allhelse if neet2023 == 1, rowpct
+tabulate polreg allhelse if neet2023 == 1, rowpct
+
+tabulate alder allhelse if neet2023 == 1, rowpct 
+tabulate OsloViken  alder if neet2023 == 1, freq colpct
+
+
+logit neet2023 c.alder##i.sosbakgr i.grunnbeløp##i.sosbakgr i.tidsintervaller##landgruppe, mfx(dydx)
+
+logit allhelse  i.innvandrer, mfx(dydx)
+
+// Jo eldre de blir, jo flere blir Lneets. Samtidig har sosialbakgrunn MINDRE å si jo eldre de blir. Effekten av "arvede" uting avtar med alderen. 
+logit neet2023 c.alder##i.sosbakgr i.grunnbeløp barnevern, mfx(dydx)
