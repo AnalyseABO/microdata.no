@@ -1,0 +1,348 @@
+require no.ssb.fdb:38 as fdb
+
+// Opprett innledende datasett med voksne
+create-dataset voksen_uten_vgs
+
+// Importer fødselsdato for å beregne alder
+import fdb/BEFOLKNING_FOEDSELS_AAR_MND as faarmnd
+generate alder = 2024 - int(faarmnd/100)
+
+// Behold kun personer over 20 år
+keep if alder >= 20
+
+// Importer overlevelsestatus for å inkludere bare levende personer
+import fdb/BEFOLKNING_STATUSKODE 2024-01-01 as STATUSKODE
+keep if STATUSKODE == '1'
+
+// Importer bostedskommune for å filtrere på fylke
+import fdb/BEFOLKNING_KOMMNR_FORMELL 2024-01-01 as bosted2024
+generate fylke = substr(bosted2024,1,2)
+
+// Definer Osloabo fylkeskategorier i henhold til originalt skript
+// (Bruker samme definisjon som i det originale skriptet)
+clone-variables fylke -> Osloabo
+destring Osloabo
+recode Osloabo (03 = 4 'Oslo')(32 = 2 'Akershus')( 33 = 3 'Buskerud')(31 = 1 'Østfold') 
+
+// Begrens til kun Akershus, Buskerud og Østfold
+keep if fylke == '03'| fylke == '31'| fylke  == '32'  | fylke == '33' 
+
+// Importer høyeste utdanningsnivå
+import fdb/NUDB_BU 2023-08-01 as utd
+generate utd1 = substr(utd,1,1)
+
+// Lag kategorier for utdanningsnivå
+generate utdniv = '9'
+replace utdniv = '1' if utd1 == '1' | utd1 == '2'
+replace utdniv = '2' if utd1 == '3' | utd1 == '4' | utd1 == '5'
+replace utdniv = '3' if utd1 == '6'
+replace utdniv = '4' if utd1 == '7' | utd1 == '8' 
+define-labels utdnivtxt '1' 'Grunnskolenivå' '2' 'Videregående grunnopplæring' '3' 'Universitets og høgskolenivå kort' '4' 'Universitets og høgskolenivå lang' '9' 'Uoppgitt el ingen utdanning'
+assign-labels utdniv utdnivtxt
+
+// Behold kun de uten fullført videregående opplæring (gruppe 1 og 9)
+keep if utdniv == '1' | utdniv == '9'
+
+// Importer relevante bakgrunnsvariabler
+
+// 1. Kjønn
+import fdb/BEFOLKNING_KJOENN as kjonn
+define-labels kjonnlbl '1' 'Mann' '2' 'Kvinne'
+assign-labels kjonn kjonnlbl
+
+// 2. Innvandringskategori
+import fdb/BEFOLKNING_INVKAT as kat
+generate Innvandringskategori = '3'
+replace Innvandringskategori = '1' if kat == 'B'
+replace Innvandringskategori = '2' if kat == 'C'
+define-labels Innvandringskategoritxt '1' 'Innvandrere' '2' 'Norskfødt med innvandrerforeldre' '3' 'Øvrig befolkning'
+assign-labels Innvandringskategori Innvandringskategoritxt
+
+// 3. Husholdningstype
+import fdb/BEFOLKNING_REGSTAT_FAMTYP 2024-01-01 as familie
+generate Familkat = substr(familie,1,1)
+generate Familiegruppe = '9- ukjent'
+replace Familiegruppe = '1- Enpersonsfamilie' if Familkat == '1'
+replace Familiegruppe = '2 - Familier med barn under 18 år' if Familkat == '2'
+replace Familiegruppe = '3 - Andre familier' if Familkat == '3'
+
+// 4. Sysselsettingsstatus
+import fdb/REGSYS_ARB_ARBMARK_STATUS 2023-11-16 as yrkstat
+generate Sysselsatt = '2 - Ikke sysselsatte' 
+replace Sysselsatt = '1 - Sysselsatt' if yrkstat == '1' | yrkstat == '2'
+
+// 5. Yrke (for de som er sysselsatt)
+import fdb/REGSYS_ARB_YRKE_STYRK08 2023-11-16 as yrke
+
+// 6. Arbeidstid
+import fdb/REGSYS_ARB_ARBEIDSTID 2023-11-16 as atid
+generate atidint = 'ikke lønnstaker'
+replace atidint = '0-15' if atid > 0
+replace atidint = '15-20' if atid > 15
+replace atidint = '20-25' if atid > 20
+replace atidint = '25-30' if atid > 25
+replace atidint = '30-35' if atid > 30
+replace atidint = '35-37.5' if atid > 35
+replace atidint = 'Over 37.5' if atid > 37.50
+
+// 7. Inntekt
+import fdb/INNTEKT_WSAMINNT 2022-12-31 as inntekt
+import fdb/INNTEKT_LONN 2022-12-31 as Lonnsinntekter
+replace Lonnsinntekter = 0 if sysmiss(Lonnsinntekter)
+
+// 8. Sosialhjelp
+import fdb/SOSHJLPZFDT_BIDB 2022-12-31 as sosialhjelp
+generate sosial = 'Nei'
+replace sosial = 'Ja' if sosialhjelp > 0
+
+// 9. Uførestatus
+import fdb/UFOERP2011FDT_GRAD 2022-11-30 as grad
+generate ufor = 'Ikke ufør'
+replace ufor = 'Ufør' if grad > 0
+
+// 10.AAP
+import fdb/ARBAVKLARPFDT_MOTTAK 2023-12-01 as aapgrad
+destring aapgrad
+generate aap = 'Ikke aap'
+replace aap = 'AAP' if aapgrad == 1
+//replace aap = 'AAP' if aapgrad == "1 - Mottar stønad/ytelse"
+
+tabulate aap
+
+// Opprett aldersgrupper for bedre analyse
+generate aldersgruppe = '20-24 år'
+replace aldersgruppe = '25-29 år' if alder >= 25
+replace aldersgruppe = '30-39 år' if alder >= 30
+replace aldersgruppe = '40-49 år' if alder >= 40
+replace aldersgruppe = '50-59 år' if alder >= 50
+replace aldersgruppe = '60+ år' if alder >= 60
+
+// Trinn 1: Total populasjonsanalyse for de tre fylkene
+tabulate Osloabo, missing
+
+// Definer variabler for de tre fylkene for enklere sammenligning
+generate fylke_navn = 'Østfold' if Osloabo == 1
+replace fylke_navn = 'Akershus' if Osloabo == 2  
+replace fylke_navn = 'Buskerud' if Osloabo == 3
+replace fylke_navn = 'Oslo' if Osloabo == 4
+
+// Aldersfordeling etter fylke
+tabulate aldersgruppe fylke_navn, missing
+tabulate utdniv fylke_navn, missing
+
+// Krysstabeller av nøkkeldemografi per fylke
+tabulate kjonn fylke_navn, missing
+tabulate Innvandringskategori fylke_navn, missing
+tabulate Familiegruppe fylke_navn, missing
+tabulate Sysselsatt fylke_navn, missing
+
+// Visualiseringer av demografiske variabler per fylke
+barchart(percent) aldersgruppe, over(fylke_navn) stack
+barchart(percent) kjonn, over(fylke_navn) stack
+barchart(percent) Innvandringskategori, over(fylke_navn) stack
+//tabulate Innvandringskategori Osloabo if lite_sannsynlig_vgo == 0, colpct missing 
+
+
+barchart(percent) Familiegruppe, over(fylke_navn) stack
+barchart(percent) Sysselsatt, over(fylke_navn) stack
+
+// Trinn 2: Identifiser de som er lite sannsynlig å ta videregående opplæring
+// Justert kriterier uten sysselsettingsstatus
+generate lite_sannsynlig_vgo = 0
+// Eksempel på kriterier - kun basert på alder, uførestatus og inntekt (4g i 2022)
+replace lite_sannsynlig_vgo = 1 if alder > 49 | ufor == 'Ufør' | aap == 'AAP' | inntekt > 445908 
+
+// Lage botidsintervaller 
+// fdb/BEFOLKNING_INNGRUNN1 as innvandrergrunn
+create-dataset telledager
+// En nyanse her. De hadde allerede bodd til 2022-12-31. Så egentlig nesten 2 år ekstra forutenom de som er utvandret
+import-event fdb/BOSATTEFDT_BOSTED 1991-12-31 to 2022-12-31 as norskbodd
+replace STOP@norskbodd = date(2022,12,31) if STOP@norskbodd > date(2022,12,31)
+replace START@norskbodd = date(1991,12,31) if START@norskbodd < date(1991,12,31)
+generate dager = STOP@norskbodd - START@norskbodd + 1
+collapse(sum) dager, by(PERSONID_1)
+boxplot dager
+summarize dager
+histogram dager
+drop if sysmiss(dager)
+clone-variables dager -> tidsintervaller
+
+// Botid, introduksjonsordningen tar 3 år. Derav disse intervallene. IMDi har en 0-4 år; 5-9 år og 10+ år inndeling også. 
+// Men dette er tall for 2022, så de har egentlig 1 år ekstra med botid, dette er folk som uansett er registrert bosatte i 2023, så det har ingenting å si om vi ikke kan "telle" dager etter 31-12-2022, fordi de må ha 1år + det som står der. 
+
+recode tidsintervaller ( 1/1095 = 1 'Opp til 5 år') (1096/2920 = 2 '5-10 år') (0 2921/99999999999 = 3 'Mer enn 10 år')
+tabulate tidsintervaller, cellpct freq
+// KEEP IF dager mindre enn feks 2 år? For Ukrainernes del?
+merge tidsintervaller into voksen_uten_vgs
+use voksen_uten_vgs
+tabulate tidsintervaller, cellpct freq
+tabulate lite_sannsynlig_vgo
+
+// Analyser denne gruppen per fylke
+tabulate lite_sannsynlig_vgo fylke_navn, missing colpct
+tabulate lite_sannsynlig_vgo fylke_navn, missing 
+
+// Visualiser hvordan "lite sannsynlig"-gruppen fordeler seg på fylker
+barchart(percent) lite_sannsynlig_vgo, over(fylke_navn) stack
+barchart(percent) fylke_navn, over(lite_sannsynlig_vgo) stack
+
+// Trinn 3: Beskriv den gjenværende populasjonen (de som realistisk kan bruke retten)
+// Dette er de med lite_sannsynlig_vgo = 0
+
+// Total størrelse på den realistiske gruppen per fylke
+tabulate fylke_navn if lite_sannsynlig_vgo == 0, missing
+
+// Demografi for den potensielle gruppen per fylke
+tabulate kjonn fylke_navn if lite_sannsynlig_vgo == 0, missing
+tabulate Innvandringskategori fylke_navn if lite_sannsynlig_vgo == 0, missing
+
+tabulate Innvandringskategori fylke_navn if lite_sannsynlig_vgo == 0, colpct missing
+tabulate aldersgruppe fylke_navn if lite_sannsynlig_vgo == 0, missing
+tabulate Familiegruppe fylke_navn if lite_sannsynlig_vgo == 0, missing
+
+tabulate lite_sannsynlig_vgo fylke_navn, missing
+tabulate lite_sannsynlig_vgo fylke_navn if Sysselsatt == "2 - Ikke sysselsatte" , missing colpct freq
+
+tabulate lite_sannsynlig_vgo fylke_navn if Sysselsatt == "1 - Sysselsatt" , missing colpct freq
+
+tabulate Sysselsatt fylke_navn , missing colpct freq
+tabulate Sysselsatt fylke_navn if lite_sannsynlig_vgo == 0, missing colpct freq 
+
+barchart(percent) Sysselsatt, stack
+
+
+
+tabulate Sysselsatt, summarize(inntekt)
+
+
+// Visualisering av demografien for den realistiske gruppen per fylke
+barchart(percent) aldersgruppe if lite_sannsynlig_vgo == 0, over(fylke_navn) stack
+tabulate aldersgruppe fylke_navn if lite_sannsynlig_vgo == 0, colpct freq
+
+barchart(percent) kjonn if lite_sannsynlig_vgo == 0, over(fylke_navn) stack
+barchart(percent) kjonn if lite_sannsynlig_vgo == 0, stack
+barchart(percent) Innvandringskategori if lite_sannsynlig_vgo == 0, over(fylke_navn) stack
+
+barchart(percent) Innvandringskategori if lite_sannsynlig_vgo == 1, over(fylke_navn) stack
+
+tabulate Innvandringskategori fylke_navn if lite_sannsynlig_vgo == 0
+tabulate Innvandringskategori fylke_navn if lite_sannsynlig_vgo == 0, colpct
+tabulate Innvandringskategori fylke_navn if lite_sannsynlig_vgo == 1, colpct
+
+
+tabulate kjonn fylke_navn, colpct freq
+tabulate kjonn fylke_navn if Innvandringskategori == '3' , colpct freq
+tabulate kjonn fylke_navn if Innvandringskategori == '1' , colpct freq
+
+tabulate kjonn fylke_navn if Innvandringskategori == '2' , colpct freq
+tabulate kjonn fylke_navn if Innvandringskategori == '2' & lite_sannsynlig_vgo == 0 , colpct freq
+
+
+barchart(percent) Innvandringskategori if lite_sannsynlig_vgo == 0, stack
+
+barchart(percent) Familiegruppe if lite_sannsynlig_vgo == 0, over(fylke_navn) stack
+
+barchart(percent) Familiegruppe if lite_sannsynlig_vgo == 1, over(fylke_navn) stack
+
+tabulate Familiegruppe fylke_navn if lite_sannsynlig_vgo == 0
+tabulate Familiegruppe fylke_navn if lite_sannsynlig_vgo == 0, colpct
+tabulate Familiegruppe fylke_navn if lite_sannsynlig_vgo == 1
+
+barchart(percent) tidsintervaller if lite_sannsynlig_vgo == 0, over(fylke_navn) stack
+
+barchart(percent) tidsintervaller if lite_sannsynlig_vgo == 1, over(fylke_navn) stack
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 0, freq colpct
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 1, freq colpct
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 0 & Innvandringskategori == '1' , colpct
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 1 & Innvandringskategori == '1', colpct
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 0 & Innvandringskategori == "1"
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 0 & Innvandringskategori == "1", colpct
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 1 & Innvandringskategori == "1", colpct
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 0 & Innvandringskategori == "1" | Innvandringskategori == "2" , colpct
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 1 & Innvandringskategori == "1" | Innvandringskategori == "2" , colpct
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 0 & Innvandringskategori == "2"
+
+tabulate tidsintervaller fylke_navn if lite_sannsynlig_vgo == 0 & Innvandringskategori == "3"
+
+barchart(percent) tidsintervaller, over(fylke_navn) by(lite_sannsynlig_vgo) stack
+
+barchart(percent) tidsintervaller,  over(fylke_navn) stack 
+
+tabulate lite_sannsynlig_vgo fylke_navn
+
+// Sysselsetting for den realistiske gruppen per fylke
+tabulate Sysselsatt fylke_navn if lite_sannsynlig_vgo == 0, missing
+tabulate yrke fylke_navn if lite_sannsynlig_vgo == 0 & Sysselsatt == '1 - Sysselsatt', missing bottom(10)
+tabulate atidint fylke_navn if lite_sannsynlig_vgo == 0 & Sysselsatt == '1 - Sysselsatt', missing
+
+// Visualisering av sysselsetting for den realistiske gruppen per fylke
+barchart(percent) Sysselsatt if lite_sannsynlig_vgo == 0, over(fylke_navn) stack
+barchart(percent) atidint if lite_sannsynlig_vgo == 0 & Sysselsatt == '1 - Sysselsatt', over(fylke_navn) stack
+
+// Inntektsanalyse for den realistiske gruppen per fylke
+tabulate fylke_navn if lite_sannsynlig_vgo == 0, summarize(inntekt)
+tabulate Sysselsatt fylke_navn if lite_sannsynlig_vgo == 0, summarize(inntekt)
+
+// Sosialhjelp og uførhet for den realistiske gruppen per fylke
+tabulate sosial fylke_navn if lite_sannsynlig_vgo == 0, missing
+tabulate ufor fylke_navn if lite_sannsynlig_vgo == 0, missing
+
+// Visualisering av sosialhjelp og uførhet for den realistiske gruppen per fylke
+barchart(percent) sosial if lite_sannsynlig_vgo == 0, over(fylke_navn) stack
+barchart(percent) ufor if lite_sannsynlig_vgo == 0, over(fylke_navn) stack
+
+// Sammenligning av aldersgruppene som er mest sannsynlig å bruke VGO-retten per fylke
+tabulate aldersgruppe fylke_navn if lite_sannsynlig_vgo == 0, missing colpct
+tabulate aldersgruppe fylke_navn if lite_sannsynlig_vgo == 0, missing 
+tabulate aldersgruppe fylke_navn if lite_sannsynlig_vgo == 0, summarize(inntekt)
+
+// Sammenligne forskjeller i yrkesfordelinger mellom fylkene
+// For personer med arbeidsmarkedstilknytning som er i den realistiske målgruppen
+tabulate yrke fylke_navn if lite_sannsynlig_vgo == 0 & Sysselsatt == '1 - Sysselsatt', missing bottom(10)
+
+// Lag nøkkelindikatorer per fylke for enda mer detaljerte sammenligninger
+// Andel av populasjonen som er i den realistiske målgruppen
+tabulate fylke_navn lite_sannsynlig_vgo, missing rowpct
+
+// Graf over aldersfordeling per fylke for den realistiske målgruppen
+histogram alder if lite_sannsynlig_vgo == 0, by(fylke_navn)
+
+// Visualisere gjennomsnittsinntekt per aldersgruppe og per fylke for den realistiske målgruppen
+tabulate aldersgruppe fylke_navn if lite_sannsynlig_vgo == 0, summarize(inntekt)
+
+// Detaljert analyser for hver aldersgruppe innen realistisk målgruppe i de tre fylkene
+tabulate Sysselsatt fylke_navn aldersgruppe if lite_sannsynlig_vgo == 0
+tabulate Sysselsatt fylke_navn if lite_sannsynlig_vgo == 0 & aldersgruppe == "`gruppe`", missing
+tabulate Innvandringskategori fylke_navn if lite_sannsynlig_vgo == 0 & aldersgruppe == "`gruppe`", missing
+
+tabulate Sysselsatt fylke_navn if lite_sannsynlig_vgo == 0
+tabulate Sysselsatt fylke_navn if lite_sannsynlig_vgo == 0, colpct
+
+tabulate sosial fylke_navn if lite_sannsynlig_vgo == 0 & aldersgruppe == "`gruppe`", missing
+
+
+
+
+// Lager inntektskategorier med betingelser basert på inntektsnivåer
+generate inntekt_G = '1G' if inntekt > 0 & inntekt <= 111477
+replace inntekt_G = '2G' if inntekt > 111477 & inntekt <= 222954
+replace inntekt_G = '3G' if inntekt > 222954 & inntekt <= 334431
+replace inntekt_G = '4G' if inntekt > 334431 & inntekt <= 445908
+
+tabulate aldersgruppe inntekt_G
+
+tabulate aldersgruppe inntekt_G, colpct
+
+tabulate fylke_navn inntekt_G, colpct
+tabulate inntekt_G fylke_navn , colpct
+tabulate fylke_navn inntekt_G
