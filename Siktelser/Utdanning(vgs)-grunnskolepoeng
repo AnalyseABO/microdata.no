@@ -1,0 +1,78 @@
+//Kobler til databank
+require no.ssb.fdb:39 as db
+
+//Eksempel 1: Populasjon 
+create-dataset krimdata
+//lager Kommune data set til Fylke
+import db/BEFOLKNING_KOMMNR_FORMELL 2024-01-01 as kommune
+destring kommune, force
+tabulate kommune
+clone-variables kommune -> bofylke2024
+recode bofylke2024  (3201/3242 = 32 'Akershus') (3001/3012 = 31'Østfold') (3301/3338 = 33 'Buskerud') (1100/1199 = 11 'Rogaland') (1500/1599 = 15 'Møre og Romsdal') (1800/1899 = 18 'Nordland') (3400/3499 = 34 'Innlandet') (3901 3903 3905 3907 3909 3911 = 39 'Vestfold') (4001/4036  = 40 'Telemark') (4200/4299 = 42 'Agder') (4600/4699 = 46 'Vestland') (5000/5099 = 50 'Trøndelag') (5501/5546  = 55 'Troms') (5601/5636  = 56 'Finnmark')  (0301 = 03 'Oslo') (2100/2199 = 21 'Svalbard') (2200/2299 = 22 'Jan Mayen') (2300/2399 = 23 'Kontinentalsokkelen') (nonmissing = 98 ' resten av landet') (missing = 99 'missing')
+keep if bofylke2024 == 32
+tabulate kommune
+// Krim variabler
+import db/KRIMINALITET_SIKTEDE_GRUPPELOV 2023-12-31 as kriminalitet23
+
+import db/BEFOLKNING_FOEDSELS_AAR_MND as faarmnd
+generate alder = 2023 - int(faarmnd/100)
+drop if alder > 18
+drop if alder < 16
+// utdanningsvariabler
+create-dataset kursdata
+import-event db/NUDB_KURS_NUS 2023-01-01 to 2023-09-01 as kurstype23
+destring kurstype23, force
+tabulate kurstype23
+keep if kurstype23 >= 300000 & kurstype23 < 500000
+create-dataset lenke_kurs_person
+import db/NUDB_KURS_FNR as fnr
+merge fnr into kursdata
+use kursdata
+collapse(count) kurstype23, by(fnr)
+rename kurstype23 ant_kurs
+merge ant_kurs into krimdata
+use krimdata
+tabulate kriminalitet23 ant_kurs
+tabulate kriminalitet23
+generate studerer = 0
+replace studerer = 1 if ant_kurs >= 1
+tabulate kriminalitet23 studerer
+
+
+
+
+//grunnskolepoeng
+import db/NUDB_KURS_GRPOENG as grunnskolepoeng
+
+
+
+tabulate grunnskolepoeng
+
+generate poeng = 0
+replace poeng = "B)8-20" if grunnskolepoeng >= 7 & grunnskolepoeng <= 19.99
+replace poeng = "C)20-30" if grunnskolepoeng >= 20 & grunnskolepoeng <= 29.99
+replace poeng = "D)30-40" if grunnskolepoeng >= 30 & grunnskolepoeng <= 39.99
+replace poeng = "E)40-50" if grunnskolepoeng >= 40 & grunnskolepoeng <= 49.99
+replace poeng = "F)50-60" if grunnskolepoeng >= 50 & grunnskolepoeng <= 60
+replace poeng = 'Ukjent' if sysmiss(grunnskolepoeng)
+tabulate poeng
+tabulate kriminalitet23 if poeng == "B)10-20"
+tabulate kriminalitet23 if poeng == "C)20-30"
+tabulate kriminalitet23 if poeng == "D)30-40"
+tabulate kriminalitet23 if poeng == "E)40-50"
+tabulate kriminalitet23 if poeng == "F)50-60"
+tabulate kriminalitet23 if poeng == "Ukjent"
+
+
+generate poengkategorier = 0
+replace poengkategorier = "lav"  if grunnskolepoeng >= 7 & grunnskolepoeng <= 29.99
+replace poengkategorier = "middel"  if grunnskolepoeng >= 30 & grunnskolepoeng <= 39.99
+replace poengkategorier = "høy"  if grunnskolepoeng > 40 & grunnskolepoeng <= 60
+replace poengkategorier = 'Ukjent' if sysmiss(grunnskolepoeng)
+tabulate poengkategorier
+tabulate kriminalitet23 if poengkategorier== "lav"
+tabulate kriminalitet23 if poengkategorier== "middel"
+tabulate kriminalitet23 if poengkategorier== "høy"
+tabulate kriminalitet23 if poengkategorier== "Ukjent"
+tabulate poengkategorier
+destring poeng, force
