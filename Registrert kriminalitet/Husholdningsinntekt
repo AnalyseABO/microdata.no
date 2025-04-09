@@ -1,7 +1,7 @@
 //Kobler til databank
 require no.ssb.fdb:39 as db
 
-//Eksempel 1: Populasjon = alle bosatte i Bergen per 1/1 2021
+
 create-dataset krimdata
 //lager Kommune data set til Fylke
 import db/BEFOLKNING_KOMMNR_FORMELL 2024-01-01 as kommune
