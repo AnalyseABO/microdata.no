@@ -1,7 +1,7 @@
 //Kobler til databank
 require no.ssb.fdb:39 as db
 
-//Eksempel 1: Populasjon 
+
 create-dataset trangbodhetdata
 //lager Kommune data set til Fylkeimport db/BEFOLKNING_KOMMNR_FORMELL 2024-01-01 as kommune
 import db/BEFOLKNING_KOMMNR_FORMELL 2024-01-01 as kommune
