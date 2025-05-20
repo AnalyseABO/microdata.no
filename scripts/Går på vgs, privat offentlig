@@ -1,0 +1,71 @@
+require no.ssb.fdb:41 as fdb
+
+// hoveddatasettet
+create-dataset studerer_vgs
+import fdb/BEFOLKNING_KOMMNR_FORMELL 2024-01-01 as kommune
+destring kommune, force
+tabulate kommune
+
+// Masse fylker, veholder afk
+clone-variables kommune -> bofylke2024
+recode bofylke2024 (3201/3242 = 32 'Akershus') (3001/3012 = 31'Østfold') (3301/3338 = 33 'Buskerud') (1100/1199 = 11 'Rogaland') (1500/1599 = 15 'Møre og Romsdal') (1800/1899 = 18 'Nordland') (3400/3499 = 34 'Innlandet') (3901 3903 3905 3907 3909 3911 = 39 'Vestfold') (4001/4036 = 40 'Telemark') (4200/4299 = 42 'Agder') (4600/4699 = 46 'Vestland') (5000/5099 = 50 'Trøndelag') (5501/5546 = 55 'Troms') (5601/5636 = 56 'Finnmark') (0301 = 03 'Oslo') (2100/2199 = 21 'Svalbard') (2200/2299 = 22 'Jan Mayen') (2300/2399 = 23 'Kontinentalsokkelen') (nonmissing = 98 ' resten av landet') (missing = 99 'missing')
+keep if bofylke2024 == 32
+tabulate kommune
+
+// Alder
+import fdb/BEFOLKNING_FOEDSELS_AAR_MND as faarmnd
+generate alder = 2023 - int(faarmnd / 100)
+
+tabulate alder
+
+// kurs, de som går, ingen fullføringsdata
+create-dataset kursdata
+import-event fdb/NUDB_KURS_NUS 2023-01-01 to 2023-09-01 as kurstype23
+destring kurstype23, force
+keep if kurstype23 >= 300000 & kurstype23 < 500000
+
+// Lenke mellom person og kurs, ellers går det ikke
+create-dataset lenke_kurs_person
+import fdb/NUDB_KURS_FNR as fnr
+merge fnr into kursdata
+
+// Har merget, så da kan vi telle opp personer på fnr
+use kursdata
+collapse(count) kurstype23, by(fnr)
+rename kurstype23 ant_kurs
+
+// Nå er alt klart til å ligge i datasettet
+merge ant_kurs into studerer_vgs
+
+// Eierskap lages
+create-dataset eierformdata
+import-event fdb/NUDB_KURS_EIERF 2023-01-01 to 2023-09-01 as eier
+destring eier, force
+tabulate eier
+
+// binært eierskap
+generate privat = 0
+replace privat = 1 if eier == 3  // 3 = Private
+
+// Link eierskap til elever
+create-dataset lenke_eier_person
+import fdb/NUDB_KURS_FNR as fnr
+merge fnr into eierformdata
+
+// tell opp per pers
+use eierformdata
+collapse (max) privat, by(fnr)
+
+// putt den i hovedfila
+merge privat into studerer_vgs
+
+// lager elevvaraibel
+use studerer_vgs
+generate studerer = 0
+replace studerer = 1 if ant_kurs >= 1 
+
+// ser på tallene
+tabulate studerer
+tabulate privat studerer 
+tabulate alder privat if studerer == 1 
+tabulate alder studerer
